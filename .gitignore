@@ -1,0 +1,24 @@
+# Resultados de compilacion
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.dll
+*.pdb
+*.user
+*.suo
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/
+*.csproj.user
+
+# NuGet
+packages/
+*.nupkg
+
+# Varios
+*.log
+Thumbs.db
+desktop.ini

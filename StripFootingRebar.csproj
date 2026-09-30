@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Revit 2027 corre sobre .NET 10. Para 2025/2026 seria net8.0-windows y el paquete 2025.* / 2026.*. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>StripFootingRebar</AssemblyName>
+    <RootNamespace>StripFootingRebar</RootNamespace>
+    <!-- Revit ya carga sus propias DLL: no copiarlas al output -->
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" ExcludeAssets="runtime" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2027.*" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- Copia automatica al directorio de add-ins de Revit al compilar en Debug -->
+  <Target Name="CopyToRevit" AfterTargets="Build" Condition="'$(Configuration)'=='Debug'">
+    <PropertyGroup>
+      <AddinDir>$(AppData)\Autodesk\Revit\Addins\2027\StripFootingRebar\</AddinDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(AddinDir)" />
+    <Exec Command="powershell -NoProfile -Command &quot;Remove-Item -Path '$(AddinDir)*.old' -Force -ErrorAction SilentlyContinue; if (Test-Path '$(AddinDir)$(TargetFileName)') { try { Copy-Item '$(TargetPath)' '$(AddinDir)' -Force -ErrorAction Stop } catch { $bak = '$(AddinDir)$(TargetFileName).' + [guid]::NewGuid().ToString('N') + '.old'; Move-Item '$(AddinDir)$(TargetFileName)' $bak -Force; Copy-Item '$(TargetPath)' '$(AddinDir)' -Force } } else { Copy-Item '$(TargetPath)' '$(AddinDir)' -Force }&quot;" />
+    <Copy SourceFiles="$(ProjectDir)config.json" DestinationFolder="$(AddinDir)" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(AddinDir)" Condition="Exists('$(TargetDir)$(TargetName).pdb')" ContinueOnError="true" />
+    <Copy SourceFiles="$(ProjectDir)StripFootingRebar.addin" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\2027\" />
+  </Target>
+
+</Project>

@@ -1,0 +1,51 @@
+{
+  "coverMm": 40,
+
+  "topBars": {
+    "layers": [
+      { "barTypeName": "", "intermediateBarTypeName": "", "count": 2 }
+    ]
+  },
+  "bottomBars": {
+    "layers": [
+      { "barTypeName": "", "intermediateBarTypeName": "", "count": 2 }
+    ]
+  },
+
+  "sideBars": { "barTypeName": "", "pairs": 0 },
+
+  "longitudinal": {
+    "startExtensionMm": 0,
+    "endExtensionMm": 0,
+    "endCoverMm": 40,
+    "legMm": 0,
+    "legAtStart": true,
+    "legAtEnd": true,
+    "layerClearMm": 25,
+    "minClearMm": 25
+  },
+
+  "bastones": [
+    { "face": "top", "position": "both", "barTypeName": "", "count": 1, "stacked": true, "gapMm": 0,
+      "length": "1500", "anchorMm": 0, "fromMm": 0, "toMm": 0 }
+  ],
+
+  "stirrups": {
+    "barTypeName": "",
+    "hookTypeName": "135",
+    "hookOrientation": "left",
+    "distribution": "R@200",
+    "symmetric": true,
+    "startOffsetMm": 0,
+    "endOffsetMm": 0
+  },
+
+  "joinedGeometry": "auto",
+
+  "partitionTemplate": "CC-{marca}",
+
+  "probeSliceMm": 10,
+  "prismCheckStepMm": 250,
+  "prismCheckToleranceMm": 2,
+  "rectilinearAngleDeg": 0.5
+}
