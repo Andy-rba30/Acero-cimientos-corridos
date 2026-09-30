@@ -33,7 +33,7 @@ namespace FootingRebar
         public double Length => Segs.Count == 0 ? 0 : Segs[Segs.Count - 1].W1;
         public bool HasCorners => Segs.Count > 1;
 
-        public string Tag => "[cadena " + Number + ": " + string.Join(" > ", Segs.Select(s => s.Item.Host.Id.ToString())) + "] ";
+        public string Tag => "[cadena " + Number + ": " + string.Join(" > ", Segs.Select(s => s.Item.Label)) + "] ";
 
         public static double MmPerFt => BeamSection.MmPerFt;
 
@@ -201,7 +201,7 @@ namespace FootingRebar
             {
                 if (!reversed) continue;
                 HostAnalysis it = segs[i].Item;
-                BeamSection flipped = BeamSection.Probe(doc, it.Host, cfg, -it.Section.DirW);
+                BeamSection flipped = BeamSection.Probe(doc, it.Host, cfg, -it.Section.DirW, it.Clip);
                 if (flipped == null) { notes.Add(it.Tag + "no se pudo releer con el eje invertido: " + BeamSection.LastError); continue; }
                 it.Section = flipped;
                 ChainSeg re = Make(it);
@@ -213,7 +213,7 @@ namespace FootingRebar
                 double w = 0;
                 foreach (ChainSeg s in c.Segs) { s.W0 = w; w += s.Length; }
                 if (c.Segs.Count > 1)
-                    notes.Add("cadena " + c.Number + ": " + c.Segs.Count + " tramos encadenados (" + string.Join(" > ", c.Segs.Select(s => s.Item.Host.Id.ToString())) +
+                    notes.Add("cadena " + c.Number + ": " + c.Segs.Count + " tramos encadenados (" + string.Join(" > ", c.Segs.Select(s => s.Item.Label)) +
                               "), recorrido " + (w * 0.3048).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " m");
             }
             return chains;

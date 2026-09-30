@@ -83,7 +83,9 @@ namespace FootingRebar
         // ------------------------------------------------------------------
         // Deduccion
         // ------------------------------------------------------------------
-        public static BeamSection Probe(Document doc, Element host, AppConfig cfg, XYZ forceDir = null)
+        /// <param name="forceDir">Direccion del eje impuesta (null = se deduce del elemento).</param>
+        /// <param name="clip">Prisma que recorta el trozo del elemento a leer (un tramo recto de un suelo); null = el elemento entero.</param>
+        public static BeamSection Probe(Document doc, Element host, AppConfig cfg, XYZ forceDir = null, Solid clip = null)
         {
             LastError = null;
             var s = new BeamSection { Host = host };
@@ -94,6 +96,14 @@ namespace FootingRebar
             {
                 LastError = "el elemento tiene " + cut.Count + " solidos; se esperaba uno solo (viga maciza)";
                 return null;
+            }
+            if (clip != null)
+            {
+                Solid piece;
+                try { piece = BooleanOperationsUtils.ExecuteBooleanOperation(cut[0], clip, BooleanOperationsType.Intersect); }
+                catch (Exception ex) { LastError = "no se pudo recortar el tramo del suelo (" + ex.Message + ")"; return null; }
+                if (piece == null || piece.Volume < 1e-9) { LastError = "el tramo del suelo no tiene hormigon"; return null; }
+                cut = new List<Solid> { piece };
             }
             s.CutSolid = cut[0];
             s.SectionSolid = cut[0];
@@ -247,6 +257,11 @@ namespace FootingRebar
                     if (h != null && h.GetLength() > 0.5) d = h;
                 }
                 catch { }
+            }
+            if (d == null && host is Floor)
+            {
+                // suelo: no tiene curva de ubicacion; el eje es la direccion dominante de su contorno
+                try { d = FloorStrips.DominantDirection(solid); } catch { }
             }
             if (d == null)
             {

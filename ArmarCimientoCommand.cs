@@ -33,7 +33,7 @@ namespace FootingRebar
 
             if (hosts.Count == 0)
             {
-                message = "No se selecciono ningun cimiento (cimentacion estructural o viga de cimentacion).";
+                message = "No se selecciono ningun cimiento (cimentacion estructural, viga de cimentacion o suelo estructural).";
                 return Result.Cancelled;
             }
 
@@ -59,9 +59,12 @@ namespace FootingRebar
             }
 
             // --- 1. Analisis geometrico de cada elemento (solo lectura, sin transaccion) ---
-            var single = hosts.Select(h => HostAnalysis.Analyze(doc, h, cfg)).ToList();
+            // un cimiento modelado como suelo (Floor) con esquinas se parte en tramos rectos
+            var stripNotes = new List<string>();
+            var single = hosts.SelectMany(h => HostAnalysis.AnalyzeAll(doc, h, cfg, stripNotes)).ToList();
             // los cimientos armables se encadenan por sus extremos en recorridos
             var items = HostAnalysis.Chained(doc, single, cfg, out List<string> chainNotes);
+            chainNotes.InsertRange(0, stripNotes);
 
             // --- 2. Interfaz: el usuario revisa que se ha detectado y elige el armado ---
             var win = new RebarOptionsWindow(doc, cfg.Clone(), barTypes, diametersMm, hookTypes, hookAngles, items);
@@ -140,7 +143,7 @@ namespace FootingRebar
 
             var td = new TaskDialog("Armado de cimientos corridos")
             {
-                MainInstruction = total + " conjuntos de armadura creados en " + armed + " de " + hosts.Count + " elemento(s).",
+                MainInstruction = total + " conjuntos de armadura creados en " + armed + " de " + items.Count + " elemento(s) / recorrido(s).",
                 MainContent = string.Join(Environment.NewLine, chainNotes.Concat(log))
             };
             if (rejected > 0)
@@ -164,15 +167,18 @@ namespace FootingRebar
 
             IList<Reference> refs = uidoc.Selection.PickObjects(
                 ObjectType.Element, new HostFilter(),
-                "Selecciona los cimientos corridos a armar (todos los tramos del recorrido) y pulsa Finalizar");
+                "Selecciona los cimientos corridos a armar (cimentaciones, vigas de cimentacion o suelos estructurales; todos los tramos del recorrido) y pulsa Finalizar");
             return refs.Select(r => doc.GetElement(r)).ToList();
         }
 
+        /// <summary>Cimentaciones estructurales, vigas de cimentacion y cimientos modelados como suelo (Floor, incluidas las losas de cimentacion).</summary>
         private static bool IsCandidate(Element e)
         {
             if (e == null || e.Category == null) return false;
+            if (e is Floor) return true;
             long id = e.Category.Id.Value;
-            return id == (long)BuiltInCategory.OST_StructuralFoundation || id == (long)BuiltInCategory.OST_StructuralFraming;
+            return id == (long)BuiltInCategory.OST_StructuralFoundation || id == (long)BuiltInCategory.OST_StructuralFraming ||
+                   id == (long)BuiltInCategory.OST_Floors;
         }
 
         private class HostFilter : ISelectionFilter

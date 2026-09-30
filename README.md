@@ -16,6 +16,14 @@ vigas y muros de contención.
   muro (el eje es el del muro que las lleva) o familias de cimiento con curva de
   ubicación recta.
 - **Vigas de cimentación** modeladas como *Structural Framing*.
+- **Suelos** (*Floors*, incluidas las losas de cimentación): un cimiento corrido dibujado
+  con la herramienta Suelo. El suelo tiene que ser **estructural** (casilla *Estructural*)
+  y de hormigón para que Revit admita armadura en él. Como un suelo no tiene curva de
+  ubicación, el eje se lee de su contorno en planta; y si el contorno tiene esquinas (una
+  L, una U, un anillo cerrado, un cruce...) el suelo se **parte en tramos rectos**
+  (`FloorStrips`) que después se encadenan como si fueran cimientos separados. El
+  contorno tiene que ser rectilíneo (bordes rectos y perpendiculares entre sí, sin arcos)
+  y el suelo horizontal; los retales de menos de 100 mm de ancho se ignoran.
 
 Cada elemento tiene que ser un tramo **recto** de sección rectilínea (rectangular, en T
 invertida, escalonada...) y se lee exactamente igual que una viga: rebanadas
