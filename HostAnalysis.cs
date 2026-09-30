@@ -27,10 +27,15 @@ namespace FootingRebar
         /// </summary>
         public Solid Clip;
         public XYZ AxisHint;
-        /// <summary>Numero de tramo dentro del suelo (1..StripCount) o 0 si el elemento se arma entero.</summary>
+        /// <summary>
+        /// Trozo macizo del elemento que representa este analisis cuando los elementos unidos
+        /// que lo cortan (columnas con prioridad) lo parten en varios; null = el solido entero.
+        /// </summary>
+        public Solid Piece;
+        /// <summary>Numero de tramo dentro del suelo o del elemento partido (1..StripCount), o 0 si el elemento se arma entero.</summary>
         public int Strip, StripCount;
 
-        /// <summary>Identificador corto para las cadenas: el id del elemento, con el numero de tramo si es un trozo de suelo.</summary>
+        /// <summary>Identificador corto para las cadenas: el id del elemento, con el numero de tramo si es un tramo de suelo o un trozo de un elemento partido.</summary>
         public string Label => Host.Id + (Strip > 0 ? "." + Strip : "");
 
         /// <summary>Distribucion de estribos propia de este elemento ("" = la de la configuracion).</summary>
@@ -100,8 +105,10 @@ namespace FootingRebar
 
         /// <summary>
         /// Analiza un elemento seleccionado. Un cimiento modelado como suelo (Floor) se parte
-        /// primero en tramos rectos (uno por esquina del contorno) y da un analisis por tramo;
-        /// cualquier otro elemento da un unico analisis.
+        /// primero en tramos rectos (uno por esquina del contorno) y da un analisis por tramo.
+        /// Un muro o cimiento al que las columnas unidas con prioridad le quitan el hormigon
+        /// donde se cruzan queda partido en trozos sueltos: da un analisis por trozo (sin
+        /// armadura dentro de las columnas). Cualquier otro elemento da un unico analisis.
         /// </summary>
         public static List<HostAnalysis> AnalyzeAll(Document doc, Element host, AppConfig cfg, List<string> notes)
         {
@@ -138,7 +145,43 @@ namespace FootingRebar
                 }
                 return list;
             }
-            list.Add(Analyze(doc, host, cfg));
+
+            List<Solid> pieces = null;
+            string perr = null, pnote = null;
+            try { pieces = BeamSection.SplitAlongAxis(host, cfg, out perr, out pnote); }
+            catch (Exception ex)
+            {
+                pieces = null;
+                perr = null;
+                pnote = "no se pudo comprobar si el solido esta partido en trozos (" + ex.Message + "); se lee entero";
+            }
+            string ptag = "[" + host.Id + " " + host.Name + "] ";
+            if (pnote != null) notes.Add(ptag + pnote);
+            if (perr != null)
+            {
+                HostAnalysis bad = New(doc, host);
+                bad.Error = "RECHAZADO, " + perr + ". No se ha creado ninguna barra.";
+                list.Add(bad);
+                return list;
+            }
+            if (pieces == null)
+            {
+                list.Add(Analyze(doc, host, cfg));
+                return list;
+            }
+            for (int k = 0; k < pieces.Count; k++)
+            {
+                HostAnalysis a = New(doc, host);
+                a.Piece = pieces[k];
+                if (pieces.Count > 1)
+                {
+                    a.Strip = k + 1;
+                    a.StripCount = pieces.Count;
+                    a.Tag = "[" + host.Id + " " + host.Name + " tramo " + (k + 1) + "/" + pieces.Count + "] ";
+                }
+                a.Reanalyze(doc, cfg);
+                list.Add(a);
+            }
             return list;
         }
 
@@ -180,12 +223,14 @@ namespace FootingRebar
                         : "no admite armadura. Revisa que el material sea hormigon y que sea un elemento estructural.";
                     return;
                 }
-                Section = BeamSection.Probe(doc, Host, cfg, AxisHint, Clip);
+                Section = BeamSection.Probe(doc, Host, cfg, AxisHint, Clip, Piece);
                 if (Section == null)
                     Error = "RECHAZADO, " + (BeamSection.LastError ?? "no se pudo deducir la seccion (motivo desconocido)") +
                             ". No se ha creado ninguna barra.";
                 else if (Strip > 0)
-                    Section.JoinedNote = (Section.JoinedNote ?? "") + " (tramo recto " + Strip + " de " + StripCount + " del suelo)";
+                    Section.JoinedNote = (Section.JoinedNote ?? "") + (Piece != null
+                        ? " (trozo " + Strip + " de " + StripCount + " del elemento, entre los cortes de los elementos unidos)"
+                        : " (tramo recto " + Strip + " de " + StripCount + " del suelo)");
             }
             catch (Exception ex)
             {

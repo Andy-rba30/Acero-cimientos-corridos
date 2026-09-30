@@ -143,7 +143,7 @@ namespace FootingRebar
 
             var td = new TaskDialog("Armado de cimientos / sobrecimientos")
             {
-                MainInstruction = total + " conjuntos de armadura creados en " + armed + " de " + items.Count + " elemento(s) / recorrido(s).",
+                MainInstruction = total + " conjuntos de armadura creados en " + armed + " de " + items.Count + " elemento(s) / tramo(s) / recorrido(s).",
                 MainContent = string.Join(Environment.NewLine, chainNotes.Concat(log))
             };
             if (rejected > 0)

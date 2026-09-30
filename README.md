@@ -34,12 +34,41 @@ invertida, escalonada...) y se lee exactamente igual que una viga: rebanadas
 perpendiculares al eje, tramos de sección constante o variable, geometría completa de
 la familia si está unida.
 
+### Columnas unidas con prioridad: sin armadura dentro de la columna
+
+Si el sobrecimiento (o el cimiento) está **unido** a las columnas con *Unir geometría* y
+la columna tiene prioridad (*Cambiar orden de unión*), la columna le quita al muro el
+hormigón donde se cruzan y Revit devuelve el muro como un solo sólido con varios
+**trozos sueltos**, uno entre cada dos columnas. El add-in respeta esa unión:
+
+- El sólido se parte en sus trozos (`SolidUtils.SplitVolumes`) y se ordenan a lo largo
+  del eje (`BeamSection.SplitAlongAxis`). Cada trozo se analiza y se arma como un
+  **tramo aparte** (`[id nombre tramo 2/4]` en la ventana, con su propia distribución de
+  estribos), con sus barras corridas y estribos solo donde hay hormigón del muro: dentro
+  de la columna no se pone armadura del muro. Los retales de menos de 100 mm se ignoran.
+- Dos trozos alineados a ambos lados de una columna **no se encadenan** aunque sus
+  extremos estén cerca: para enlazar dos extremos hace falta además que los dos tramos
+  se **toquen** (el eje de uno, prolongado 30 mm más allá de su cara, entra en el
+  hormigón del otro). Así una esquina con columna tampoco se enlaza: cada muro termina
+  en la cara de la columna.
+- Para anclar las barras corridas dentro de la columna usa la **prolongación en el
+  inicio / fin**: esa parte de barra que sobresale del tramo no se comprueba contra el
+  hormigón del muro.
+
+Con una **familia** de cimiento unida a columnas el comportamiento sigue siendo el de
+siempre en modo *auto* / *completa* (la sección se lee de la geometría completa de la
+familia y las barras pasan de largo); en modo *solo el sólido cortado* se parte en trozos
+como un muro. Si el muro no está unido a la columna (o el muro tiene prioridad), el
+sólido es de una pieza y las barras pasan por la columna.
+
 ## El recorrido (`FootingChain`)
 
 1. Cada tramo armable da sus dos extremos de eje (centro del alma en cada cara
    extrema).
 2. Dos extremos que están a menos de **una anchura de cimiento + 100 mm** (en planta y en
-   cota) se **enlazan**. Los enlaces se prueban de menor a mayor giro: en un nudo con más
+   cota) y cuyos tramos **se tocan** ahí (si entre las dos caras hay un hueco, una columna
+   unida con prioridad u otro elemento, no es una esquina) se **enlazan**. Los enlaces se
+   prueban de menor a mayor giro: en un nudo con más
    de dos extremos (una esquina a la que además llega un cimiento en T) se enlazan
    primero los dos tramos que menos giran, el cimiento que "pasa", y el otro empieza o
    termina ahí. Un cimiento que llega en T a mitad de otro no se enlaza con él: es un
@@ -102,7 +131,7 @@ comando también en Complementos > Herramientas externas.
 | Archivo | Qué hace |
 |---------|----------|
 | `FootingChain.cs` | Recorrido: encadena los tramos por sus extremos, cota `w` continua, polilíneas de barra con esquinas, solidos de la cadena. |
-| `BeamSection.cs` | Lectura del sólido (eje de cimentación de muro o curva de ubicación, eje invertible), sección sintética de un recorrido. |
+| `BeamSection.cs` | Lectura del sólido (eje de cimentación de muro o curva de ubicación, eje invertible), partición en trozos del sólido cortado por columnas unidas, sección sintética de un recorrido. |
 | `BeamProfile.cs` | Perfil por tramos y `Concat` de los perfiles de una cadena. Pura. |
 | `BeamPlan.cs`, `StirrupLayout.cs`, `Rectilinear.cs` | Armado de la sección, distribución de estribos, geometría pura (iguales que en vigas). |
 | `HostAnalysis.cs` | Resultado por elemento y agrupación en recorridos (`Chained`). |
