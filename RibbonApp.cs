@@ -250,10 +250,10 @@ namespace FootingRebar
                 ArbaRibbon.Ensure(app);
 
                 string assembly = Assembly.GetExecutingAssembly().Location;
-                var data = new PushButtonData("ARBA_Acero_Cimientos", "Cimientos", assembly, typeof(ArmarCimientoCommand).FullName)
+                var data = new PushButtonData("ARBA_Acero_Cimientos", "Cimientos/\nSobrecimientos", assembly, typeof(ArmarCimientoCommand).FullName)
                 {
-                    ToolTip = "Genera el armado de cimientos corridos siguiendo su recorrido (esquinas incluidas): barras corridas por capas, bastones y estribos",
-                    LongDescription = "Selecciona todos los tramos del cimiento corrido y pulsa el boton. Los tramos que se tocan " +
+                    ToolTip = "Genera el armado de cimientos corridos y sobrecimientos (cimentaciones, vigas de cimentacion, suelos o muros) siguiendo su recorrido (esquinas incluidas): barras corridas por capas, bastones y estribos",
+                    LongDescription = "Selecciona todos los tramos del cimiento corrido o sobrecimiento (tambien muros estructurales) y pulsa el boton. Los tramos que se tocan " +
                                       "por los extremos se encadenan en un recorrido: las barras corridas doblan en las esquinas y " +
                                       "los estribos van tramo a tramo. La ventana permite elegir capas, bastones, estribos y ganchos " +
                                       "con un esquema de la seccion y del alzado desarrollado.",
@@ -266,7 +266,7 @@ namespace FootingRebar
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("ARBA", "No se pudo anadir el boton Cimientos a la cinta: " + ex.Message +
+                TaskDialog.Show("ARBA", "No se pudo anadir el boton Cimientos/Sobrecimientos a la cinta: " + ex.Message +
                                 "\nEl comando sigue disponible en Complementos > Herramientas externas.");
                 return Result.Failed;
             }

@@ -175,6 +175,8 @@ namespace FootingRebar
                 {
                     Error = Host is Floor
                         ? "no admite armadura. Revisa que el suelo sea estructural (casilla Estructural del suelo) y que su material sea hormigon."
+                        : Host is Wall
+                        ? "no admite armadura. Revisa que el muro sea estructural (Uso estructural: portante) y que su material sea hormigon."
                         : "no admite armadura. Revisa que el material sea hormigon y que sea un elemento estructural.";
                     return;
                 }

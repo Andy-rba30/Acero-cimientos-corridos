@@ -33,7 +33,7 @@ namespace FootingRebar
 
             if (hosts.Count == 0)
             {
-                message = "No se selecciono ningun cimiento (cimentacion estructural, viga de cimentacion o suelo estructural).";
+                message = "No se selecciono ningun cimiento ni sobrecimiento (cimentacion estructural, viga de cimentacion, suelo estructural o muro estructural).";
                 return Result.Cancelled;
             }
 
@@ -77,7 +77,7 @@ namespace FootingRebar
             var log = new List<string>();
             int total = 0, armed = 0, rejected = 0;
 
-            using (Transaction tx = new Transaction(doc, "Armar cimientos corridos"))
+            using (Transaction tx = new Transaction(doc, "Armar cimientos / sobrecimientos"))
             {
                 tx.Start();
                 foreach (HostAnalysis item in items)
@@ -141,7 +141,7 @@ namespace FootingRebar
                 tx.Commit();
             }
 
-            var td = new TaskDialog("Armado de cimientos corridos")
+            var td = new TaskDialog("Armado de cimientos / sobrecimientos")
             {
                 MainInstruction = total + " conjuntos de armadura creados en " + armed + " de " + items.Count + " elemento(s) / recorrido(s).",
                 MainContent = string.Join(Environment.NewLine, chainNotes.Concat(log))
@@ -167,18 +167,18 @@ namespace FootingRebar
 
             IList<Reference> refs = uidoc.Selection.PickObjects(
                 ObjectType.Element, new HostFilter(),
-                "Selecciona los cimientos corridos a armar (cimentaciones, vigas de cimentacion o suelos estructurales; todos los tramos del recorrido) y pulsa Finalizar");
+                "Selecciona los cimientos o sobrecimientos a armar (cimentaciones, vigas de cimentacion, suelos o muros estructurales; todos los tramos del recorrido) y pulsa Finalizar");
             return refs.Select(r => doc.GetElement(r)).ToList();
         }
 
-        /// <summary>Cimentaciones estructurales, vigas de cimentacion y cimientos modelados como suelo (Floor, incluidas las losas de cimentacion).</summary>
+        /// <summary>Cimentaciones estructurales, vigas de cimentacion, cimientos modelados como suelo (Floor, incluidas las losas de cimentacion) y sobrecimientos modelados como muro (Wall).</summary>
         private static bool IsCandidate(Element e)
         {
             if (e == null || e.Category == null) return false;
-            if (e is Floor) return true;
+            if (e is Floor || e is Wall) return true;
             long id = e.Category.Id.Value;
             return id == (long)BuiltInCategory.OST_StructuralFoundation || id == (long)BuiltInCategory.OST_StructuralFraming ||
-                   id == (long)BuiltInCategory.OST_Floors;
+                   id == (long)BuiltInCategory.OST_Floors || id == (long)BuiltInCategory.OST_Walls;
         }
 
         private class HostFilter : ISelectionFilter

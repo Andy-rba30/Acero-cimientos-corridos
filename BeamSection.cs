@@ -234,7 +234,7 @@ namespace FootingRebar
             if (host.Location is LocationCurve lc && lc.Curve != null)
             {
                 if (lc.Curve is Line ln) d = ln.Direction;
-                else { error = "el eje de la viga no es recto (curva de ubicacion en arco o spline): solo se arman vigas rectas"; return null; }
+                else { error = "el eje del elemento no es recto (curva de ubicacion en arco o spline): solo se arman tramos rectos"; return null; }
             }
             if (d == null && host is Autodesk.Revit.DB.WallFoundation wf)
             {

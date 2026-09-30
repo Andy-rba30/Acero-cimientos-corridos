@@ -112,7 +112,7 @@ namespace FootingRebar
             }
             foreach (BastonCfg b in _cfg.Bastones) _bastonStore.Add(b.Clone());
 
-            Title = "Armar cimientos corridos";
+            Title = "Armar cimientos / sobrecimientos";
             Width = 1240;
             Height = 860;
             MinWidth = 1000;
@@ -178,7 +178,7 @@ namespace FootingRebar
             int ok = _items.Count(i => i.CanBuild);
             var group = new GroupBox
             {
-                Header = "Cimientos / recorridos: " + _items.Count + " (" + ok + " armables). Los tramos que se tocan por los extremos forman un recorrido. Haz clic en uno para verlo. " +
+                Header = "Cimientos / sobrecimientos / recorridos: " + _items.Count + " (" + ok + " armables). Los tramos que se tocan por los extremos forman un recorrido. Haz clic en uno para verlo. " +
                          "A la derecha, la distribucion de estribos propia de cada recorrido (vacio = la general).",
                 Padding = new Thickness(4)
             };

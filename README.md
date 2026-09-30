@@ -1,4 +1,4 @@
-# Armado automático de cimientos corridos — add-in Revit 2027
+# Armado automático de cimientos corridos y sobrecimientos — add-in Revit 2027
 
 Genera la armadura de **cimientos corridos** (cimentaciones de muro o vigas de
 cimentación) **siguiendo su recorrido**: los tramos rectos seleccionados se encadenan
@@ -24,6 +24,10 @@ vigas y muros de contención.
   (`FloorStrips`) que después se encadenan como si fueran cimientos separados. El
   contorno tiene que ser rectilíneo (bordes rectos y perpendiculares entre sí, sin arcos)
   y el suelo horizontal; los retales de menos de 100 mm de ancho se ignoran.
+- **Muros** (*Walls*): sobrecimientos modelados como muro. El muro tiene que ser
+  **estructural** (uso estructural portante) y de hormigón. El eje es su curva de
+  ubicación, que tiene que ser recta; cada muro es un tramo y se encadena con los demás
+  por sus extremos como cualquier otro cimiento.
 
 Cada elemento tiene que ser un tramo **recto** de sección rectilínea (rectangular, en T
 invertida, escalonada...) y se lee exactamente igual que una viga: rebanadas
