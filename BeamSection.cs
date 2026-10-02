@@ -32,6 +32,11 @@ namespace FootingRebar
         /// <summary>Solido del que se han leido las secciones (geometria completa de la familia si se recupero).</summary>
         public Solid SectionSolid;
         public bool UsedOriginal;
+        /// <summary>
+        /// Tramo recto recortado de un suelo (Floor) con esquinas: el resto del suelo es
+        /// hormigon contiguo (otro tramo del mismo suelo al que este llega en T o en esquina).
+        /// </summary>
+        public bool IsFloorStrip;
         /// <summary>Si esta seccion representa un recorrido de varios cimientos encadenados: el mapeo (u, v, w) pasa por la cadena.</summary>
         public FootingChain Chain;
         public string JoinedNote;
@@ -125,6 +130,7 @@ namespace FootingRebar
                     catch (Exception ex) { LastError = "no se pudo recortar el tramo del suelo (" + ex.Message + ")"; return null; }
                     if (clipped == null || clipped.Volume < 1e-9) { LastError = "el tramo del suelo no tiene hormigon"; return null; }
                     cut = new List<Solid> { clipped };
+                    s.IsFloorStrip = true;
                 }
             }
             s.CutSolid = cut[0];

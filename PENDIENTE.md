@@ -18,3 +18,15 @@ Windows + Revit, así que queda por comprobar en el modelo de la captura:
 - [ ] Los esquemas del alzado y de los bastones dibujan a trazos el anclaje (`ancla -300 mm`)
   igual que lo crea el generador.
 - [ ] Con `legMm > 0` y sin prolongación ni anclaje en un extremo, ese extremo va sin patilla.
+
+En `main` se han integrado además las ramas de suelos / muros / columnas unidas y la de
+empalmes por longitud comercial, que tampoco se han compilado juntas. Comprobar también:
+
+- [ ] Recorrido largo con esquinas y empalmes (`commercialLengthMm` 9000): los trozos
+  empalmados que doblan en una esquina se parten ahí (aviso en el resumen) y el alzado
+  muestra `empalme ...` donde se crean.
+- [ ] Muro (sobrecimiento) partido por columnas unidas con prioridad: con *Extremos contra
+  otro cimiento* las barras de cada trozo atraviesan la columna hasta su cara opuesta menos
+  el recubrimiento; desactivado, terminan en la cara de la columna.
+- [ ] Suelo con forma de T: el tramo que llega en T ancla sus barras en el otro tramo del
+  mismo suelo.

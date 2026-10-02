@@ -51,9 +51,11 @@ hormigón donde se cruzan y Revit devuelve el muro como un solo sólido con vari
   se **toquen** (el eje de uno, prolongado 30 mm más allá de su cara, entra en el
   hormigón del otro). Así una esquina con columna tampoco se enlaza: cada muro termina
   en la cara de la columna.
-- Para anclar las barras corridas dentro de la columna usa la **prolongación en el
-  inicio / fin**: esa parte de barra que sobresale del tramo no se comprueba contra el
-  hormigón del muro.
+- Con *Extremos contra otro cimiento* activado (`anchorInAdjacent`, ver más abajo), las
+  barras corridas de cada trozo atraviesan la columna hasta su cara opuesta menos el
+  recubrimiento de extremos, así los trozos de los dos lados se solapan dentro de la
+  columna. Si lo desactivas, usa la **prolongación en el inicio / fin**: esa parte de
+  barra que sobresale del tramo no se comprueba contra el hormigón del muro.
 
 Con una **familia** de cimiento unida a columnas el comportamiento sigue siendo el de
 siempre en modo *auto* / *completa* (la sección se lee de la geometría completa de la
@@ -107,10 +109,11 @@ verticales del alzado marcan las esquinas.
   anillo), las barras corridas, las laterales y los bastones de extremo sin anclaje
   propio atraviesan ese hormigón y terminan en su cara opuesta menos el recubrimiento de
   extremos, en vez de quedarse en la cara del propio cimiento. Solo cuenta si el hormigón
-  contiguo (cimentaciones, vigas y columnas armables) termina a menos de `max(2 m, 2
-  anchos)`; si sigue más allá no es un cimiento que cruza. En un array se usa la
-  prolongación menor. Ese hormigón contiguo también cuenta en las redes de seguridad, y
-  el resumen lo apunta en las `NOTAS`. Los esquemas del alzado dibujan el anclaje a
+  contiguo (cimentaciones, vigas, suelos, muros y columnas armables; en un suelo partido
+  en tramos, también el resto del propio suelo) termina a menos de `max(2 m, 2 anchos)`;
+  si sigue más allá no es un cimiento que cruza. En un array se usa la prolongación
+  menor. Ese hormigón contiguo también cuenta en las redes de seguridad, y el resumen lo
+  apunta en las `NOTAS`. Los esquemas del alzado y de los bastones dibujan el anclaje a
   trazos más allá de la cara (`ancla -300 mm`).
 - **Barras que se parten en una esquina**: `Rebar.CreateFromCurves` devuelve `null` si el
   proyecto no tiene una forma de armadura con parámetros para tantos segmentos (una barra
@@ -130,6 +133,29 @@ verticales del alzado marcan las esquinas.
   cimiento al siguiente), con las fibras extremas tomadas según la dirección de cada
   trozo de barra. Si algo queda fuera del hormigón se deshace el recorrido entero.
 
+## Empalmes por longitud comercial (`SpliceLayout`)
+
+Como en el add-in de vigas, las barras corridas más largas que la **longitud comercial**
+(9 m por defecto; 0 = sin empalmes) se parten en trozos solapados la **longitud de
+empalme a tracción** de ACI 318-19 (`ld` de 25.4.2.3 con el factor 1.3 de barra alta,
+clase B = 1.3 ld o clase A, mínimo 300 mm, o una longitud fija; `f'c` y `fy` en kg/cm²),
+con el segundo trozo pegado por dentro y una bayoneta 1:6 para volver a la línea. Los
+bastones no se empalman.
+
+Lo propio del recorrido: aquí el "vano" es cada **tramo de la cadena** (cada elemento
+entre columnas o esquinas, con su cota `w`), así que la zona de empalme se calcula tramo
+a tramo: superiores en el tercio central de cada tramo e inferiores en sus cuartos
+extremos fuera de `2h` de la cara del apoyo (ambas configurables; las laterales en el
+tercio central). Los empalmes justos se reparten lo más uniformemente posible a lo largo
+de la barra y cada uno se lleva a la zona permitida más cercana; si así no caben con la
+barra comercial se reparten por igual y la fila del recorrido lo avisa. La longitud que
+se empalma es la de la barra entera, anclaje en el cimiento contiguo incluido. Los trozos
+doblan en las esquinas igual que la barra entera (cada trozo es su propio `Rebar`; como
+el segundo trozo y los siguientes llevan la bayoneta del empalme, si además doblan en una
+esquina no son planos y se parten en ella como se explica arriba), y en el alzado
+desarrollado se ven con su etiqueta `empalme 1100`. La longitud de empalme de cada tipo
+de barra en uso se muestra en la ventana, bajo los campos de empalme.
+
 Todo lo demás (capas por cara con dos diámetros, capa intermedia de laterales, bastones
 apilados o entre las corridas, selección especial de barras en la sección, ganchos con
 inversión automática, distribución `1@50, 8@100, R@200` desde cada extremo, partición,
@@ -137,9 +163,10 @@ inversión automática, distribución `1@50, 8@100, R@200` desde cada extremo, p
 
 ## config.json
 
-Mismas claves que el add-in de vigas, más `longitudinal.anchorInAdjacent` (anclar los
-extremos en el cimiento contiguo, `true` por defecto); por defecto `"distribution":
-"R@200"` y `"partitionTemplate": "CC-{marca}"`.
+Mismas claves que el add-in de vigas (bloque `splices` incluido: `commercialLengthMm`,
+`fcKgCm2`, `fyKgCm2`, `classB`, `fixedLengthMm`, `topZone`, `bottomZone`), más
+`longitudinal.anchorInAdjacent` (anclar los extremos en el cimiento contiguo, `true` por
+defecto); por defecto `"distribution": "R@200"` y `"partitionTemplate": "CC-{marca}"`.
 
 ## Compilar e instalar
 
@@ -152,8 +179,10 @@ dotnet build -c Debug
 
 En Debug la compilación copia `StripFootingRebar.dll`, `config.json` y
 `StripFootingRebar.addin` a `%AppData%\Autodesk\Revit\Addins\2027\`. Al abrir Revit
-aparece el botón **Cimientos** en el desplegable **Acero** de la pestaña **ARBA** y el
-comando también en Complementos > Herramientas externas.
+aparece el botón **Cimientos/Sobrecimientos** en el desplegable **Acero** de la pestaña
+**ARBA** y el comando también en Complementos > Herramientas externas.
+
+La rama principal del repositorio es `main`; ahí está siempre la última versión.
 
 ## Estructura del código
 
@@ -163,6 +192,7 @@ comando también en Complementos > Herramientas externas.
 | `BeamSection.cs` | Lectura del sólido (eje de cimentación de muro o curva de ubicación, eje invertible), partición en trozos del sólido cortado por columnas unidas, sección sintética de un recorrido. |
 | `BeamProfile.cs` | Perfil por tramos y `Concat` de los perfiles de una cadena. Pura. |
 | `BeamPlan.cs`, `StirrupLayout.cs`, `Rectilinear.cs` | Armado de la sección, distribución de estribos, geometría pura (iguales que en vigas). |
+| `SpliceLayout.cs` | Empalmes por traslape: longitud de empalme (ACI 318-19) por diámetro y reparto de los trozos con cada empalme en la zona de un tramo del recorrido. Pura. |
 | `HostAnalysis.cs` | Resultado por elemento y agrupación en recorridos (`Chained`). |
 | `RebarGenerator.cs` | Crea los `Rebar` tramo a tramo y a lo largo del recorrido, con las redes de seguridad contra la unión de sólidos. |
 | `RebarOptionsWindow.cs`, `SectionPreview.cs`, `ElevationPreview.cs`, `BastonPreview.cs`, `RevitTheme.cs` | Ventana y esquemas. |

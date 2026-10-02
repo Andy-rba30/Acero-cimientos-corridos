@@ -141,6 +141,44 @@ namespace FootingRebar
         public string Describe => (IsTop ? "superior" : "inferior") + " " + PositionLabels[PositionIndex].ToLowerInvariant();
     }
 
+    /// <summary>
+    /// Empalmes por traslape de las barras corridas cuando la viga es mas larga que la
+    /// barra comercial (9 m): la barra se parte en trozos de como mucho esa longitud que
+    /// se solapan la longitud de empalme a traccion de ACI 318-19 (clase B = 1.3 ld), en
+    /// la zona de la viga que toca a cada cara (superiores en el tercio central, inferiores
+    /// cerca de los apoyos), con una bayoneta de un diametro para que las dos barras se toquen.
+    /// </summary>
+    public class SpliceCfg
+    {
+        /// <summary>Longitud comercial de la barra (mm). Las barras corridas mas largas se empalman. 0 = sin empalmes (barras de una pieza).</summary>
+        public double CommercialLengthMm { get; set; } = 9000;
+        /// <summary>Resistencia del hormigon f'c (kg/cm2) para la longitud de desarrollo.</summary>
+        public double FcKgCm2 { get; set; } = 210;
+        /// <summary>Limite elastico del acero fy (kg/cm2).</summary>
+        public double FyKgCm2 { get; set; } = 4200;
+        /// <summary>true = empalme clase B (1.3 ld, todas las barras empalmadas en la misma seccion); false = clase A (1.0 ld).</summary>
+        public bool ClassB { get; set; } = true;
+        /// <summary>Longitud de empalme fija (mm) que sustituye al calculo para todos los diametros. 0 = calcular segun ACI 318-19.</summary>
+        public double FixedLengthMm { get; set; } = 0;
+        /// <summary>Zona de empalme de las barras superiores: "center" (tercio central de la luz) o "ends" (cuartos extremos, fuera de 2h desde el apoyo).</summary>
+        public string TopZone { get; set; } = "center";
+        /// <summary>Idem barras inferiores.</summary>
+        public string BottomZone { get; set; } = "ends";
+
+        public static readonly string[] Zones = { "center", "ends" };
+        public static readonly string[] ZoneLabels = { "Tercio central de la luz", "Cuartos extremos (fuera de 2h del apoyo)" };
+
+        public static int ZoneIndex(string zone)
+        {
+            string z = (zone ?? "").Trim().ToLowerInvariant();
+            return z == "ends" || z == "extremos" || z == "apoyos" ? 1 : 0;
+        }
+
+        [JsonIgnore] public bool Enabled => CommercialLengthMm > 0;
+        /// <summary>True si las barras de esa cara se empalman en el tercio central; false = cerca de los apoyos.</summary>
+        public bool CenterZone(bool top) => ZoneIndex(top ? TopZone : BottomZone) == 0;
+    }
+
     /// <summary>Estribos rectangulares cerrados (uno por seccion, en el alma).</summary>
     public class StirrupCfg
     {
@@ -170,6 +208,8 @@ namespace FootingRebar
         /// <summary>Capa intermedia: barras laterales por pares simetricos (una en cada rama del estribo), repartidas en el canto libre entre las capas superiores e inferiores.</summary>
         public SideBarsCfg SideBars { get; set; } = new SideBarsCfg();
         public List<BastonCfg> Bastones { get; set; } = new List<BastonCfg>();
+        /// <summary>Empalmes por traslape de las barras corridas mas largas que la barra comercial.</summary>
+        public SpliceCfg Splices { get; set; } = new SpliceCfg();
         public StirrupCfg Stirrups { get; set; } = new StirrupCfg();
 
         /// <summary>
@@ -266,6 +306,13 @@ namespace FootingRebar
             if (Longitudinal.LegMm < 0) Longitudinal.LegMm = 0;
             if (Longitudinal.LayerClearMm < 0) Longitudinal.LayerClearMm = 0;
             if (Longitudinal.MinClearMm < 0) Longitudinal.MinClearMm = 0;
+            if (Splices == null) Splices = new SpliceCfg();
+            if (Splices.CommercialLengthMm < 0) Splices.CommercialLengthMm = 0;
+            if (Splices.FcKgCm2 <= 0) Splices.FcKgCm2 = 210;
+            if (Splices.FyKgCm2 <= 0) Splices.FyKgCm2 = 4200;
+            if (Splices.FixedLengthMm < 0) Splices.FixedLengthMm = 0;
+            Splices.TopZone = SpliceCfg.Zones[SpliceCfg.ZoneIndex(Splices.TopZone)];
+            Splices.BottomZone = SpliceCfg.Zones[SpliceCfg.ZoneIndex(Splices.BottomZone)];
             if (Stirrups.BarTypeName == null) Stirrups.BarTypeName = "";
             if (Stirrups.HookTypeName == null) Stirrups.HookTypeName = "";
             Stirrups.HookOrientation = HookLeft ? "left" : "right";
