@@ -320,8 +320,9 @@ namespace FootingRebar
             legRow.Children.Add(_leg); legRow.Children.Add(_legStart); legRow.Children.Add(_legEnd);
             Hook(_leg); Hook(_legStart); Hook(_legEnd);
             AddRow(form, r++, "Patilla a 90 grados (mm):", legRow,
-                   "Patilla en los extremos prolongados: las barras superiores doblan hacia abajo y las inferiores hacia arriba (gancho estandar " +
-                   "dentro del apoyo). Necesita prolongacion mayor que 0 en ese extremo. 0 = sin patilla.");
+                   "Patilla en los extremos prolongados o anclados en el cimiento contiguo: las barras superiores doblan hacia abajo y las " +
+                   "inferiores hacia arriba (gancho estandar dentro del apoyo). En un extremo sin prolongacion ni anclaje no se pone, y las " +
+                   "barras que doblan en las esquinas de un recorrido van sin patilla. 0 = sin patilla.");
             _layerClear = NumBox(_cfg.Longitudinal.LayerClearMm);
             AddRow(form, r++, "Separacion libre entre capas (mm):", _layerClear, "Hueco libre entre una capa y la siguiente de la misma cara (25 mm o un diametro segun norma).");
             _minClear = NumBox(_cfg.Longitudinal.MinClearMm);
@@ -1019,6 +1020,7 @@ namespace FootingRebar
                     _layerSummary[top].Text = plan == null || plan.Error != null ? "" :
                         string.Join("   ", plan.LayersOf(top).Where(l => l.Main > 0).Select(l => l.Name + ": " + BeamPlan.DescribeLayer(l, false)));
                 if (plan != null) _preview.Show(_selected.Section, plan, hookDeg); else _preview.Clear(text);
+                EnsureAdjacent(_selected.Section);
                 if (runs != null) _elevation.Show(_selected.Section, plan, runs, bastones, scratch); else _elevation.Clear(text);
                 _bastonPreview.Show(_selected.Section, plan, bastones, scratch);
                 _partitionPreview.Text = "Ejemplo: " + _selected.Partition(scratch, "estribo", "estribo");
@@ -1044,6 +1046,18 @@ namespace FootingRebar
         }
 
         /// <summary>Estado de una viga con la configuracion dada: true si se puede armar, y el texto para su fila.</summary>
+        /// <summary>
+        /// Carga una vez el hormigon contiguo del recorrido (cimientos a los que llega en T o en
+        /// esquina, columnas) para que los esquemas dibujen el anclaje de los extremos tal y
+        /// como lo va a crear el generador. Solo lectura del modelo.
+        /// </summary>
+        private void EnsureAdjacent(BeamSection s)
+        {
+            if (s == null || s.AdjacentLoaded) return;
+            try { RebarGenerator.LoadAdjacent(_doc, s); }
+            catch { s.AdjacentLoaded = true; }
+        }
+
         private bool ItemStatus(HostAnalysis item, AppConfig cfg, double ds, double dbFallback,
                                 out string text, out BeamPlan plan, out List<StirrupRun> runs, out List<BastonRange> bastones)
         {

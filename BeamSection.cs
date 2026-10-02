@@ -51,6 +51,8 @@ namespace FootingRebar
         /// las barras que se anclan en ellos tambien se comprueban contra estos solidos.
         /// </summary>
         public List<Solid> ExtraSolids = new List<Solid>();
+        /// <summary>True cuando ExtraSolids ya se ha buscado en el modelo (RebarGenerator.LoadAdjacent).</summary>
+        public bool AdjacentLoaded;
 
         /// <summary>Solidos contra los que se comprueban las barras (uno por tramo en una cadena, mas el hormigon contiguo).</summary>
         public List<Solid> AllSolids() =>
@@ -60,7 +62,7 @@ namespace FootingRebar
         public static BeamSection ForChain(FootingChain chain, double tol, out string error)
         {
             BeamSection first = chain.Segs[0].Section;
-            BeamProfile prof = BeamProfile.Concat(chain.Segs.Select(s => s.Section.Profile).ToList(), tol, out error);
+            BeamProfile prof = BeamProfile.Concat(chain.Segs.Select(s => s.Section.Profile).ToList(), chain.Segs.Select(s => s.DV).ToList(), tol, out error);
             if (prof == null) return null;
             return new BeamSection
             {

@@ -14,8 +14,9 @@ namespace FootingRebar
     /// cartelas y escalones), las barras corridas siguiendo las caras (prolongaciones en
     /// los apoyos a trazos, patillas), los bastones en su tramo y una raya por cada
     /// estribo, con la etiqueta de cada tramo de la distribucion ("inicio 1@50",
-    /// "resto R@200 (=187)"). La escala vertical se exagera si hace falta para que se
-    /// vea el canto.
+    /// "resto R@200 (=187)"). Los extremos anclados en el cimiento contiguo se dibujan a
+    /// trazos mas alla de la cara, como las prolongaciones. La escala vertical se exagera
+    /// si hace falta para que se vea el canto.
     /// </summary>
     public sealed class ElevationPreview : Canvas
     {
@@ -26,6 +27,8 @@ namespace FootingRebar
         private AppConfig _cfg;
         private string _message = "Sin elemento armable";
         private const double FtToMm = 304.8;
+        /// <summary>Anclaje (inicio, fin) de cada fila de barras, calculado una vez por Show (consulta el modelo).</summary>
+        private readonly Dictionary<string, (double r0, double r1)> _reach = new Dictionary<string, (double r0, double r1)>();
 
         public ElevationPreview()
         {
@@ -37,7 +40,22 @@ namespace FootingRebar
         public void Show(BeamSection s, BeamPlan plan, List<StirrupRun> runs, List<BastonRange> bastones, AppConfig cfg)
         {
             _s = s; _plan = plan; _runs = runs; _bastones = bastones ?? new List<BastonRange>(); _cfg = cfg;
+            _reach.Clear();
             Redraw();
+        }
+
+        /// <summary>Anclaje en el cimiento contiguo de una fila (el menor de sus barras, como en el generador).</summary>
+        private (double r0, double r1) ReachOf(string key, PlanBar first, int count, double step, bool anchorStart, bool anchorEnd)
+        {
+            if (_reach.TryGetValue(key, out var r)) return r;
+            try
+            {
+                var list = RebarGenerator.BarReach(_s, _cfg, first, count, step, anchorStart, anchorEnd);
+                r = (list.Min(q => q.start), list.Min(q => q.end));
+            }
+            catch { r = (0, 0); }
+            _reach[key] = r;
+            return r;
         }
 
         public void Clear(string message)
@@ -60,8 +78,33 @@ namespace FootingRebar
             double ext0 = Math.Max(0, _cfg.Longitudinal.StartExtensionMm) / FtToMm;
             double ext1 = Math.Max(0, _cfg.Longitudinal.EndExtensionMm) / FtToMm;
             double leg = Math.Max(0, _cfg.Longitudinal.LegMm) / FtToMm;
+            double endCover = _cfg.Longitudinal.EndCoverMm / FtToMm;
+            double tol = _cfg.PrismCheckToleranceMm / FtToMm;
+            bool corners = _s.Chain != null && _s.Chain.HasCorners;
             double anchor = _bastones.Count == 0 ? 0 : Math.Max(0, Math.Max(-_bastones.Min(b => b.W0), _bastones.Max(b => b.W1) - L));
-            double left = Math.Max(ext0, anchor), right = Math.Max(ext1, anchor);
+            // anclaje en el cimiento contiguo: lo que mas se prolongan las barras mas alla de cada cara
+            double reach0 = 0, reach1 = 0;
+            bool planOk = _plan != null && _plan.Error == null;
+            if (planOk)
+                foreach ((PlanBar first, int count, double step) in _plan.ArrayRows(tol))
+                {
+                    if (first.IsBaston)
+                    {
+                        foreach (BastonRange br in _bastones.Where(b => b.Index == first.Baston))
+                        {
+                            (double r0, double r1) = ReachOf(first.Key + "|" + br.Label + "|" + Mm(br.W0), first, count, step, br.AtStart, br.AtEnd);
+                            reach0 = Math.Max(reach0, r0 - Math.Max(0, br.W0));
+                            reach1 = Math.Max(reach1, r1 - Math.Max(0, L - br.W1));
+                        }
+                    }
+                    else
+                    {
+                        (double r0, double r1) = ReachOf(first.Key + "|corrida", first, count, step, ext0 <= 0, ext1 <= 0);
+                        reach0 = Math.Max(reach0, r0 - endCover);
+                        reach1 = Math.Max(reach1, r1 - endCover);
+                    }
+                }
+            double left = Math.Max(ext0, Math.Max(anchor, reach0)), right = Math.Max(ext1, Math.Max(anchor, reach1));
             double total = L + left + right;
             double vLo = prof.VMin, vHi = prof.VMax;
             double depth = Math.Max(vHi - vLo, 1e-6);
@@ -119,11 +162,10 @@ namespace FootingRebar
                 t.ToolTip = run.Label + ": " + run.Count + " estribos desde w=" + Mm(run.W0) + " mm cada " + Mm(run.Spacing) + " mm";
             }
 
-            // barras corridas y bastones: una trayectoria por fila (misma cara, capa y distancia a la cara)
-            if (_plan != null && _plan.Error == null)
+            // barras corridas y bastones: una trayectoria por fila (misma cara, capa y distancia a la cara);
+            // los extremos anclados en el cimiento contiguo se prolongan como en el generador
+            if (planOk)
             {
-                double endCover = _cfg.Longitudinal.EndCoverMm / FtToMm;
-                double tol = _cfg.PrismCheckToleranceMm / FtToMm;
                 foreach ((PlanBar first, int count, double step) in _plan.ArrayRows(tol))
                 {
                     Brush brush = SectionPreview.BrushOf(first);
@@ -133,8 +175,10 @@ namespace FootingRebar
                     {
                         foreach (BastonRange br in _bastones.Where(b => b.Index == first.Baston))
                         {
-                            var path = BarPaths.Path(prof, first.Top, first.FaceOffset, br.W0, br.W1, inset, tol, null, first.Label);
-                            DrawPath(path, X, Y, brush, thick, L, first.Label + " " + br.Label + ": " + count + " x " + first.TypeName);
+                            (double r0, double r1) = ReachOf(first.Key + "|" + br.Label + "|" + Mm(br.W0), first, count, step, br.AtStart, br.AtEnd);
+                            var path = BarPaths.Path(prof, first.Top, first.FaceOffset, br.W0 - r0, br.W1 + r1, inset, tol, null, first.Label);
+                            DrawPath(path, X, Y, brush, thick, L, first.Label + " " + br.Label + ": " + count + " x " + first.TypeName +
+                                     (r0 > 0 || r1 > 0 ? " (anclado en el cimiento contiguo)" : ""));
                             double wm = 0.5 * (Math.Max(0, br.W0) + Math.Min(L, br.W1));
                             double vm = first.Top ? prof.WebAt(wm).V2 : prof.WebAt(wm).V1;
                             Text("B" + (first.Baston + 1) + " " + count + "x" + first.TypeName, X(wm) - 20, first.Top ? Y(vm) - 16 : Y(vm) + 2, brush, 9, true);
@@ -142,21 +186,29 @@ namespace FootingRebar
                     }
                     else
                     {
-                        double w0 = ext0 > 0 ? -ext0 : endCover, w1 = ext1 > 0 ? L + ext1 : L - endCover;
+                        (double r0, double r1) = ReachOf(first.Key + "|corrida", first, count, step, ext0 <= 0, ext1 <= 0);
+                        double w0 = (ext0 > 0 ? -ext0 : endCover) - r0, w1 = (ext1 > 0 ? L + ext1 : L - endCover) + r1;
                         var path = BarPaths.Path(prof, first.Top, first.FaceOffset, w0, w1, inset, tol, null, first.Label);
-                        DrawPath(path, X, Y, brush, thick, L, first.Label + ": " + count + " x " + first.TypeName);
+                        DrawPath(path, X, Y, brush, thick, L, first.Label + ": " + count + " x " + first.TypeName +
+                                 (r0 > 0 || r1 > 0 ? " (anclada en el cimiento contiguo)" : ""));
+                        // patilla solo en un extremo prolongado o anclado, y nunca en las barras que doblan en las esquinas
                         double dir = first.Top ? -1 : 1;
-                        if (leg > 0 && _cfg.Longitudinal.LegAtStart)
+                        bool legs = leg > 0 && !corners && !first.IsSide;
+                        if (legs && _cfg.Longitudinal.LegAtStart && (ext0 > 0 || r0 > 0))
                             Children.Add(new Line { X1 = X(path[0].w), Y1 = Y(path[0].v), X2 = X(path[0].w), Y2 = Y(path[0].v + dir * leg), Stroke = brush, StrokeThickness = thick });
-                        if (leg > 0 && _cfg.Longitudinal.LegAtEnd)
+                        if (legs && _cfg.Longitudinal.LegAtEnd && (ext1 > 0 || r1 > 0))
                         {
                             var e = path[path.Count - 1];
                             Children.Add(new Line { X1 = X(e.w), Y1 = Y(e.v), X2 = X(e.w), Y2 = Y(e.v + dir * leg), Stroke = brush, StrokeThickness = thick });
                         }
                     }
                 }
-                if (ext0 > 0) Text("-" + Mm(ext0) + " mm" + (leg > 0 && _cfg.Longitudinal.LegAtStart ? " + patilla " + Mm(leg) : ""), X(-ext0), Y(vHi) - 30, SectionPreview.CornerBrush, 9);
-                if (ext1 > 0) Text("+" + Mm(ext1) + " mm" + (leg > 0 && _cfg.Longitudinal.LegAtEnd ? " + patilla " + Mm(leg) : ""), X(L) - 10, Y(vHi) - 30, SectionPreview.CornerBrush, 9);
+                string legNote0 = leg > 0 && !corners && _cfg.Longitudinal.LegAtStart ? " + patilla " + Mm(leg) : "";
+                string legNote1 = leg > 0 && !corners && _cfg.Longitudinal.LegAtEnd ? " + patilla " + Mm(leg) : "";
+                if (ext0 > 0) Text("-" + Mm(ext0) + " mm" + legNote0, X(-ext0), Y(vHi) - 30, SectionPreview.CornerBrush, 9);
+                else if (reach0 > 0) Text("ancla -" + Mm(reach0) + " mm" + legNote0, X(-reach0), Y(vHi) - 30, SectionPreview.CornerBrush, 9);
+                if (ext1 > 0) Text("+" + Mm(ext1) + " mm" + legNote1, X(L) - 10, Y(vHi) - 30, SectionPreview.CornerBrush, 9);
+                else if (reach1 > 0) Text("ancla +" + Mm(reach1) + " mm" + legNote1, X(L) - 10, Y(vHi) - 30, SectionPreview.CornerBrush, 9);
             }
 
             int n = _runs.Sum(r => r.Count);

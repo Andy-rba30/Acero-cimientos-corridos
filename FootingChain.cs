@@ -17,6 +17,15 @@ namespace FootingRebar
         /// <summary>Extremos del eje del tramo (centro del alma) en coordenadas del modelo.</summary>
         public XYZ Start, End;
         public XYZ Dir => Section.DirW;
+        /// <summary>
+        /// Lo que el fondo de este tramo esta mas alto (positivo) o mas bajo que el del primero
+        /// de la cadena (pies). El perfil del recorrido lleva las secciones de este tramo
+        /// desplazadas DV en v, asi el escalon de fondo se ve como un escalon del perfil.
+        /// </summary>
+        public double DV;
+
+        /// <summary>Punto del modelo para (u, v) de la seccion del recorrido (v ya con el escalon) y cota local wl de este tramo.</summary>
+        public XYZ World(double u, double v, double wl) => Section.World(u, v - DV, wl);
     }
 
     /// <summary>
@@ -32,6 +41,10 @@ namespace FootingRebar
         public List<ChainSeg> Segs = new List<ChainSeg>();
         public double Length => Segs.Count == 0 ? 0 : Segs[Segs.Count - 1].W1;
         public bool HasCorners => Segs.Count > 1;
+        /// <summary>Anillo cerrado: el fin del ultimo tramo vuelve al inicio del primero (la esquina de cierre).</summary>
+        public bool Closed;
+        /// <summary>Algun tramo tiene el fondo a distinta cota que el primero.</summary>
+        public bool Stepped => Segs.Any(s => s.DV != 0);
 
         public string Tag => "[cadena " + Number + ": " + string.Join(" > ", Segs.Select(s => s.Item.Host.Id.ToString())) + "] ";
 
@@ -45,11 +58,11 @@ namespace FootingRebar
             return Segs[Segs.Count - 1];
         }
 
-        /// <summary>Punto del modelo para (u, v) de la seccion y cota w del recorrido.</summary>
+        /// <summary>Punto del modelo para (u, v) de la seccion del recorrido y cota w del recorrido.</summary>
         public XYZ World(double u, double v, double w)
         {
             ChainSeg s = SegAt(w);
-            return s.Section.World(u, v, w - s.W0);
+            return s.World(u, v, w - s.W0);
         }
 
         /// <summary>Cota w del recorrido de un punto del modelo: la del tramo cuyo eje pasa mas cerca.</summary>
@@ -98,8 +111,8 @@ namespace FootingRebar
                     double t = (wj - wa) / (wb - wa);
                     double vj = va + (vb - va) * t;
                     ChainSeg prev = Segs[Segs.IndexOf(s) - 1];
-                    XYZ pa = prev.Section.World(u, vj, prev.Length), da = prev.Dir;
-                    XYZ pb = s.Section.World(u, vj, 0), db = s.Dir;
+                    XYZ pa = prev.World(u, vj, prev.Length), da = prev.Dir;
+                    XYZ pb = s.World(u, vj, 0), db = s.Dir;
                     XYZ corner = Corner(pa, da, pb, db);
                     if (corner != null) Add(corner);
                 }
@@ -237,7 +250,7 @@ namespace FootingRebar
                         order.Add((cur, reversed));
                         chain.Segs.Add(segs[cur]);
                         if (!next.TryGetValue((cur, !reversed), out var to)) break;   // el extremo por el que salimos
-                        if (visited.Contains(to.Item1)) break;   // anillo cerrado
+                        if (visited.Contains(to.Item1)) { chain.Closed = to.Item1 == start; break; }   // anillo cerrado
                         cur = to.Item1;
                         reversed = to.Item2;   // si entramos por su final, ese tramo va al reves
                     }
@@ -256,13 +269,31 @@ namespace FootingRebar
                 segs[i].Start = re.Start; segs[i].End = re.End;
             }
 
+            double tol = BeamSection.Mm(cfg.PrismCheckToleranceMm);
             foreach (FootingChain c in chains)
             {
                 double w = 0;
-                foreach (ChainSeg s in c.Segs) { s.W0 = w; w += s.Length; }
+                BeamSection first = c.Segs[0].Section;
+                foreach (ChainSeg s in c.Segs)
+                {
+                    s.W0 = w; w += s.Length;
+                    // escalon de fondo: el v de cada tramo se mide desde su propio fondo, asi que el
+                    // perfil del recorrido desplaza cada tramo lo que su origen esta mas alto o mas bajo
+                    double dv = (s.Section.Origin - first.Origin).DotProduct(first.DirV);
+                    s.DV = Math.Abs(dv) <= tol ? 0 : dv;
+                }
                 if (c.Segs.Count > 1)
+                {
+                    string step = "";
+                    if (c.Stepped)
+                    {
+                        double lo = c.Segs.Min(s => s.DV), hi = c.Segs.Max(s => s.DV);
+                        step = ", fondo a distinta cota (escalon de " + BeamSection.ToMm(hi - lo) + " mm)";
+                    }
                     notes.Add("cadena " + c.Number + ": " + c.Segs.Count + " tramos encadenados (" + string.Join(" > ", c.Segs.Select(s => s.Item.Host.Id.ToString())) +
-                              "), recorrido " + (w * 0.3048).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " m");
+                              "), recorrido " + (w * 0.3048).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " m" +
+                              (c.Closed ? ", anillo cerrado" : "") + step);
+                }
             }
             return chains;
         }

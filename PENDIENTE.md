@@ -1,64 +1,20 @@
-# Corrección en curso: barras longitudinales que faltan o quedan cortas
+# Pendiente: probar en Revit 2027
 
-## Diagnóstico
+La corrección de las barras longitudinales que faltaban o quedaban cortas está terminada
+en el código (ver el README: anclaje en el cimiento contiguo, barras que se parten en una
+esquina, escalón de fondo entre tramos, patilla solo con prolongación o anclaje, anclaje
+dibujado en los esquemas). Este repositorio no se ha podido compilar ni ejecutar fuera de
+Windows + Revit, así que queda por comprobar en el modelo de la captura:
 
-1. **Barras que no se colocan** (recorridos con esquinas). `Rebar.CreateFromCurves`
-   **devuelve `null`** sin lanzar excepción cuando no puede dar forma a la barra. Según la
-   documentación de la API de Revit 2027, solo crea una forma nueva si el proyecto ya tiene
-   formas con **parámetros suficientes para todos los segmentos**. Una barra que da la vuelta
-   a un recorrido con muchas esquinas no cumple eso. Antes se apuntaba como "INCOMPLETO
-   ... ()" y la barra no se creaba, aunque los estribos sí. También fallaban los vértices de
-   **tramos alineados** (muro partido en una T): la barra tenía dos segmentos seguidos en la
-   misma recta.
-2. **Barras cortas**: en un extremo que llega en T a otro cimiento, o en la esquina que
-   cierra un anillo, las barras terminaban en la cara del propio cimiento menos el
-   recubrimiento, sin entrar en el cimiento al que llegan.
-
-## Hecho (compila, falta probar en Revit)
-
-- `FootingChain.Polyline`: en una unión de tramos alineados ya no se pone vértice. Los giros
-  de menos de 2° se tratan como alineados y la nueva función `Clean` quita los vértices
-  colineales.
-- `RebarGenerator.PlaceChainBar`:
-  - Limpia la polilínea y la ajusta a un plano exacto (`PlaneNormal`).
-  - Si Revit no puede crear la barra, o la barra no es plana, la parte en la esquina de más
-    giro más cercana a la mitad. Cada trozo sigue recto hasta la cara opuesta del tramo
-    siguiente, menos el recubrimiento de extremos (`Reach`).
-  - Lo hace de forma recursiva: una barra recta se crea siempre.
-- `TryPlace`: igual que `Place`, pero devuelve el fallo de Revit para poder reintentar. El
-  mensaje ya no sale vacío.
-- Anclaje en el cimiento contiguo (`EndReach` y `NearbySolids`):
-  - En cada extremo sin prolongación, las barras corridas, las laterales y los bastones de
-    extremo con anclaje 0 atraviesan el hormigón contiguo hasta su cara opuesta, menos el
-    recubrimiento.
-  - Solo cuenta si ese hormigón termina a menos de `max(2 m, 2 anchos)`.
-  - En un array se usa la prolongación menor.
-- `BeamSection.ExtraSolids`: el hormigón contiguo (cimentaciones, vigas y columnas
-  armables cerca de los extremos y de las uniones) también cuenta en las redes de
-  seguridad.
-- Nueva opción `longitudinal.anchorInAdjacent` (por defecto `true`):
-  - En `config.json` y en `AppConfig`.
-  - Casilla "Extremos contra otro cimiento" en la ventana.
-- Resumen: nuevas "NOTAS" con lo que se ha anclado; aviso cuando se parten barras.
-
-## Falta para terminar
-
-- [ ] **Probar en Revit 2027** con el modelo de la captura:
-  - Perímetro cerrado con muros partidos en las T.
-  - Cimientos en T.
-  - Comprobar que ya no aparece "INCOMPLETO" y que las barras llegan a la cara opuesta del
-    cimiento al que llegan.
-- [ ] Revisar el **anillo cerrado**: con el anclaje, las barras interiores del inicio y del
-  fin se cruzan en la esquina de cierre (es la misma barra). Si Revit la acepta, queda así;
-  si no, el troceo la parte. Decidir si conviene partirla siempre ahí.
-- [ ] Recorridos con tramos a **distinta cota de fondo** (mismo canto): el `v` de cada tramo
-  se mide desde su propio fondo, así que `BeamProfile.Concat` no ve el escalón. Ahora la
-  barra se trocea por no ser plana, pero lo correcto es desplazar el perfil de cada tramo
-  por su diferencia de cota en `Concat` y en `FootingChain.World`, y en los estribos.
-- [ ] `ElevationPreview` / `BastonPreview`: no dibujan la prolongación automática del
-  anclaje (solo afecta al esquema).
-- [ ] Actualizar el `README.md`: anclaje en el cimiento contiguo, troceo de barras en las
-  esquinas, nueva clave `anchorInAdjacent`, y la limitación de "En un anillo cerrado la
-  última esquina no lleva barra pasante".
-- [ ] Opcional: la patilla (`legMm`) se pone en los extremos aunque no haya prolongación (ya
-  pasaba antes); valorar exigir prolongación o anclaje.
+- [ ] Compila con `dotnet build -c Debug` (SDK de .NET 10, paquetes `Nice3point.Revit.Api.*` 2027).
+- [ ] Perímetro cerrado con muros partidos en las T: ya no aparece `INCOMPLETO` y las barras
+  llegan a la cara opuesta del cimiento al que llegan (aviso de "barras partidas en una
+  esquina" en el resumen; los trozos se cruzan en la esquina partida y en la de cierre).
+- [ ] Cimientos en T: las barras del que llega entran hasta la cara opuesta del otro menos
+  el recubrimiento de extremos (`NOTAS: inicio/fin anclado en el cimiento contiguo`).
+- [ ] Recorrido con tramos a distinta cota de fondo (mismo canto): el alzado desarrollado
+  muestra el escalón, las barras lo salvan con bayoneta y los estribos van a la cota de
+  cada tramo.
+- [ ] Los esquemas del alzado y de los bastones dibujan a trazos el anclaje (`ancla -300 mm`)
+  igual que lo crea el generador.
+- [ ] Con `legMm > 0` y sin prolongación ni anclaje en un extremo, ese extremo va sin patilla.

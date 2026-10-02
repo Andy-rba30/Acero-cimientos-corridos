@@ -247,9 +247,13 @@ namespace FootingRebar
         /// <summary>
         /// Perfil de un recorrido: los perfiles de los tramos puestos uno tras otro (la cota w
         /// sigue creciendo de un tramo al siguiente). Todos tienen que tener el mismo ancho de
-        /// alma; el canto puede cambiar de un tramo a otro (escalon en la union).
+        /// alma; el canto puede cambiar de un tramo a otro (escalon en la union). "offsets" es
+        /// lo que el fondo de cada tramo esta mas alto (positivo) o mas bajo que el del primero
+        /// (el v de cada tramo se mide desde su propio fondo): sus secciones se desplazan eso en
+        /// v, asi un escalon de fondo con el mismo canto se ve como un escalon del perfil y las
+        /// barras lo salvan con una bayoneta. Null = todos a la misma cota.
         /// </summary>
-        public static BeamProfile Concat(IList<BeamProfile> parts, double tol, out string error)
+        public static BeamProfile Concat(IList<BeamProfile> parts, IList<double> offsets, double tol, out string error)
         {
             error = null;
             if (parts == null || parts.Count == 0) { error = "recorrido vacio"; return null; }
@@ -257,9 +261,11 @@ namespace FootingRebar
             var p = new BeamProfile();
             double w0 = 0;
             Rect first = parts[0].Segments[0].Web0;
+            double Off(int k) => offsets != null && k < offsets.Count ? offsets[k] : 0;
             for (int k = 0; k < parts.Count; k++)
             {
                 BeamProfile part = parts[k];
+                double dv = Off(k);
                 foreach (ProfileSegment s in part.Segments)
                 {
                     if (Math.Abs(s.Web0.U1 - first.U1) > tol || Math.Abs(s.Web0.W - first.W) > tol)
@@ -271,16 +277,17 @@ namespace FootingRebar
                     p.Segments.Add(new ProfileSegment
                     {
                         Index = p.Segments.Count, W0 = s.W0 + w0, W1 = s.W1 + w0, Constant = s.Constant,
-                        Polygon0 = s.Polygon0, Polygon1 = s.Polygon1, Web0 = s.Web0.Clone(), Web1 = s.Web1.Clone()
+                        Polygon0 = Shift(s.Polygon0, dv), Polygon1 = Shift(s.Polygon1, dv), Web0 = Shift(s.Web0, dv), Web1 = Shift(s.Web1, dv)
                     });
                 }
                 foreach (ProfileStation st in part.Stations)
-                    p.Stations.Add(new ProfileStation(st.W + w0, st.Polygon, tol));
+                    p.Stations.Add(new ProfileStation(st.W + w0, Shift(st.Polygon, dv), tol));
                 w0 += part.Length;
             }
             p.Length = w0;
             p.UMin = parts.Min(x => x.UMin); p.UMax = parts.Max(x => x.UMax);
-            p.VMin = parts.Min(x => x.VMin); p.VMax = parts.Max(x => x.VMax);
+            p.VMin = Enumerable.Range(0, parts.Count).Min(k => parts[k].VMin + Off(k));
+            p.VMax = Enumerable.Range(0, parts.Count).Max(k => parts[k].VMax + Off(k));
             p.WebWidth = first.W;
             p.MinDepth = double.MaxValue; p.MaxDepth = 0;
             foreach (ProfileSegment s in p.Segments)
@@ -290,9 +297,15 @@ namespace FootingRebar
                     p.MaxDepth = Math.Max(p.MaxDepth, r.H);
                 }
             p.Reference = p.Stations.OrderBy(s => Math.Abs(s.W - 0.5 * w0)).First();
-            p.KindName = parts[0].KindName + ", recorrido de " + parts.Count + " tramos";
+            bool stepped = Enumerable.Range(0, parts.Count).Any(k => Math.Abs(Off(k)) > tol);
+            p.KindName = parts[0].KindName + ", recorrido de " + parts.Count + " tramos" + (stepped ? " con el fondo a distinta cota" : "");
             return p;
         }
+
+        private static List<Pt> Shift(List<Pt> poly, double dv) =>
+            dv == 0 || poly == null ? poly : poly.Select(q => new Pt(q.U, q.V + dv)).ToList();
+
+        private static Rect Shift(Rect r, double dv) => r == null ? null : new Rect(r.U1, r.V1 + dv, r.U2, r.V2 + dv);
 
         public static BeamProfile Build(List<ProfileStation> stations, double length, double tol,
                                         Func<double, double, List<Pt>, bool, double> refine, out string error)

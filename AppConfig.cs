@@ -67,7 +67,12 @@ namespace FootingRebar
         /// el recubrimiento de extremos, en vez de quedarse en la cara de este cimiento.
         /// </summary>
         public bool AnchorInAdjacent { get; set; } = true;
-        /// <summary>Patilla a 90 grados en los extremos prolongados (mm): las superiores doblan hacia abajo y las inferiores hacia arriba. 0 = sin patilla. Necesita prolongacion.</summary>
+        /// <summary>
+        /// Patilla a 90 grados (mm) en los extremos prolongados mas alla de la cara o anclados en
+        /// el cimiento contiguo: las superiores doblan hacia abajo y las inferiores hacia arriba.
+        /// En un extremo sin prolongacion ni anclaje no se pone; las barras que doblan en las
+        /// esquinas de un recorrido van sin patilla. 0 = sin patilla.
+        /// </summary>
         public double LegMm { get; set; } = 0;
         public bool LegAtStart { get; set; } = true;
         public bool LegAtEnd { get; set; } = true;

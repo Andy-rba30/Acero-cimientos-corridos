@@ -11,8 +11,9 @@ namespace FootingRebar
 {
     /// <summary>
     /// Esquema pequeno de los bastones solos: el alzado de la viga (perfil del alma) con
-    /// cada baston en su tramo, arriba o abajo, con su etiqueta. Sin las barras corridas
-    /// ni los estribos, para ver de un vistazo donde queda cada uno.
+    /// cada baston en su tramo, arriba o abajo, con su etiqueta (y su anclaje en el
+    /// cimiento contiguo, si lo tiene). Sin las barras corridas ni los estribos, para ver
+    /// de un vistazo donde queda cada uno.
     /// </summary>
     public sealed class BastonPreview : Canvas
     {
@@ -21,6 +22,8 @@ namespace FootingRebar
         private List<BastonRange> _bastones;
         private AppConfig _cfg;
         private const double FtToMm = 304.8;
+        /// <summary>Anclaje (inicio, fin) de cada baston en el cimiento contiguo, calculado una vez por Show.</summary>
+        private readonly Dictionary<BastonRange, (double r0, double r1)> _reach = new Dictionary<BastonRange, (double r0, double r1)>();
 
         public BastonPreview()
         {
@@ -32,8 +35,30 @@ namespace FootingRebar
         public void Show(BeamSection s, BeamPlan plan, List<BastonRange> bastones, AppConfig cfg)
         {
             _s = s; _plan = plan; _bastones = bastones ?? new List<BastonRange>(); _cfg = cfg;
+            _reach.Clear();
+            if (_plan != null && _plan.Error == null && _cfg != null)
+            {
+                double tol = _cfg.PrismCheckToleranceMm / FtToMm;
+                try
+                {
+                    foreach ((PlanBar first, int count, double step) in _plan.ArrayRows(tol))
+                    {
+                        if (!first.IsBaston) continue;
+                        foreach (BastonRange br in _bastones.Where(b => b.Index == first.Baston))
+                        {
+                            var list = RebarGenerator.BarReach(_s, _cfg, first, count, step, br.AtStart, br.AtEnd);
+                            (double r0, double r1) = (list.Min(q => q.start), list.Min(q => q.end));
+                            if (_reach.TryGetValue(br, out var prev)) { r0 = Math.Min(r0, prev.r0); r1 = Math.Min(r1, prev.r1); }
+                            _reach[br] = (r0, r1);
+                        }
+                    }
+                }
+                catch { }
+            }
             Redraw();
         }
+
+        private (double r0, double r1) ReachOf(BastonRange br) => _reach.TryGetValue(br, out var r) ? r : (0, 0);
 
         public void Clear()
         {
@@ -51,7 +76,7 @@ namespace FootingRebar
             if (_s == null || _bastones == null) { Text("Sin elemento armable", 8, 8, Brushes.Gray, 11); return; }
             BeamProfile prof = _s.Profile;
             double L = prof.Length;
-            double anchor = _bastones.Count == 0 ? 0 : Math.Max(0, Math.Max(-_bastones.Min(b => b.W0), _bastones.Max(b => b.W1) - L));
+            double anchor = _bastones.Count == 0 ? 0 : Math.Max(0, Math.Max(-_bastones.Min(b => b.W0 - ReachOf(b).r0), _bastones.Max(b => b.W1 + ReachOf(b).r1) - L));
             double total = L + 2 * anchor;
             double vLo = prof.VMin, vHi = prof.VMax, depth = Math.Max(vHi - vLo, 1e-6);
             double mx = 24, mt = 26, mb = 26;
@@ -87,7 +112,8 @@ namespace FootingRebar
                 int stack = br.Index % 3;
                 double off = cover + (_plan?.Ds ?? 0) + stack * (0.5 * depth / 6);
                 var pts = new PointCollection();
-                double wa = Math.Max(br.W0, -anchor), wb = Math.Min(br.W1, L + anchor);
+                (double r0, double r1) = ReachOf(br);
+                double wa = Math.Max(br.W0 - r0, -anchor), wb = Math.Min(br.W1 + r1, L + anchor);
                 int n = 12;
                 for (int i = 0; i <= n; i++)
                 {
@@ -99,8 +125,9 @@ namespace FootingRebar
                 {
                     Points = pts, Stroke = SectionPreview.BastonBrush, StrokeThickness = 3, StrokeLineJoin = PenLineJoin.Round,
                     ToolTip = "Baston " + (br.Index + 1) + " (" + br.Cfg.Describe + "): " + br.Cfg.Count + " x " + br.Cfg.BarTypeName +
-                              ", de w=" + Mm(br.W0) + " a " + Mm(br.W1) + " mm"
+                              ", de w=" + Mm(wa) + " a " + Mm(wb) + " mm" + (r0 > 0 || r1 > 0 ? " (anclado en el cimiento contiguo)" : "")
                 };
+                if (r0 > 0 || r1 > 0) line.StrokeDashArray = new DoubleCollection { 4, 2 };
                 Children.Add(line);
                 double wm = 0.5 * (wa + wb);
                 Point pm = pts[n / 2];
