@@ -75,8 +75,9 @@ namespace FootingRebar
         /// Puntos del modelo de una barra a la distancia u del borde de la seccion, con la
         /// trayectoria (w, v) dada: dentro de cada tramo los puntos van en su sistema local
         /// y en cada esquina se anade el punto donde se cortan las dos lineas de barra
-        /// (la barra dobla siguiendo el recorrido). Si en la esquina las lineas son
-        /// paralelas (tramos alineados) se enlazan por el punto medio.
+        /// (la barra dobla siguiendo el recorrido). En una union de tramos alineados la
+        /// barra sigue recta (sin vertice: Revit no admite dos segmentos seguidos en la misma
+        /// recta) o, si los ejes estan desplazados, se enlaza por el punto medio.
         /// </summary>
         public List<XYZ> Polyline(double u, List<(double w, double v)> path)
         {
@@ -99,22 +100,69 @@ namespace FootingRebar
                     ChainSeg prev = Segs[Segs.IndexOf(s) - 1];
                     XYZ pa = prev.Section.World(u, vj, prev.Length), da = prev.Dir;
                     XYZ pb = s.Section.World(u, vj, 0), db = s.Dir;
-                    Add(Corner(pa, da, pb, db));
+                    XYZ corner = Corner(pa, da, pb, db);
+                    if (corner != null) Add(corner);
                 }
                 Add(World(u, vb, wb));
             }
-            return pts;
+            return Clean(pts, AlignedOffset);
         }
 
-        /// <summary>Interseccion en planta de la recta (pa, da) con la (pb, db), a la cota media; punto medio si son paralelas.</summary>
+        /// <summary>Por debajo de este giro (radianes) dos tramos se tratan como alineados.</summary>
+        private const double AlignedTurn = 2 * Math.PI / 180;
+        /// <summary>Desplazamiento lateral entre tramos alineados por debajo del cual la barra sigue recta (pies, ~3 mm).</summary>
+        private const double AlignedOffset = 0.01;
+
+        /// <summary>
+        /// Interseccion en planta de la recta (pa, da) con la (pb, db), a la cota media. Si
+        /// son (casi) paralelas, null cuando estan en la misma recta (la barra sigue recta) o
+        /// el punto medio si estan desplazadas.
+        /// </summary>
         private static XYZ Corner(XYZ pa, XYZ da, XYZ pb, XYZ db)
         {
             double ax = da.X, ay = da.Y, bx = db.X, by = db.Y;
             double den = ax * by - ay * bx;
-            if (Math.Abs(den) < 1e-6) return 0.5 * (pa + pb);
             double dx = pb.X - pa.X, dy = pb.Y - pa.Y;
+            if (Math.Abs(den) < Math.Sin(AlignedTurn))
+            {
+                double la = Math.Sqrt(ax * ax + ay * ay);
+                double offset = la > 1e-9 ? Math.Abs(dx * ay - dy * ax) / la : 0;
+                return offset <= AlignedOffset && Math.Abs(pa.Z - pb.Z) <= AlignedOffset ? null : 0.5 * (pa + pb);
+            }
             double t = (dx * by - dy * bx) / den;
             return new XYZ(pa.X + ax * t, pa.Y + ay * t, 0.5 * (pa.Z + pb.Z));
+        }
+
+        /// <summary>
+        /// Quita puntos repetidos y los vertices en los que la barra no gira (a menos de
+        /// "tol" de la recta entre sus vecinos y sin volver atras): Revit no crea una forma
+        /// con dos segmentos seguidos en la misma recta.
+        /// </summary>
+        public static List<XYZ> Clean(IList<XYZ> pts, double tol)
+        {
+            var list = new List<XYZ>();
+            foreach (XYZ p in pts)
+                if (list.Count == 0 || list[list.Count - 1].DistanceTo(p) > 0.003) list.Add(p);
+            bool changed = true;
+            while (changed && list.Count > 2)
+            {
+                changed = false;
+                for (int i = 1; i + 1 < list.Count; i++)
+                {
+                    XYZ a = list[i - 1], b = list[i], c = list[i + 1];
+                    XYZ ac = c - a;
+                    double len = ac.GetLength();
+                    if (len < 1e-9) continue;
+                    XYZ dir = ac / len;
+                    double along = (b - a).DotProduct(dir);
+                    if (along <= 0 || along >= len) continue;   // vuelve atras: es un vertice de verdad
+                    if ((b - (a + dir * along)).GetLength() > tol) continue;
+                    list.RemoveAt(i);
+                    changed = true;
+                    break;
+                }
+            }
+            return list;
         }
 
         // ------------------------------------------------------------------

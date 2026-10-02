@@ -48,7 +48,7 @@ namespace FootingRebar
         private readonly Dictionary<bool, Button> _layerAdd = new Dictionary<bool, Button>();
         private TextBox _longStart, _longEnd, _endCover, _leg, _layerClear, _minClear, _sidePairs;
         private ComboBox _sideType;
-        private CheckBox _legStart, _legEnd;
+        private CheckBox _legStart, _legEnd, _anchorAdjacent;
 
         // --- barras por capa de la viga seleccionada ---
         // --- seleccion especial de barras (tipo asignado barra a barra en la viga seleccionada) ---
@@ -308,6 +308,11 @@ namespace FootingRebar
             AddRow(form, r++, "Prolongacion en el fin (mm):", _longEnd, "Idem en la cara final de la viga.");
             _endCover = NumBox(_cfg.Longitudinal.EndCoverMm);
             AddRow(form, r++, "Recubrimiento en extremos (mm):", _endCover, "Donde terminan las barras (corridas y bastones sin anclaje) cuando no se prolongan mas alla de la cara.");
+            _anchorAdjacent = new CheckBox { Content = "Anclar en el cimiento al que llega (T o esquina)", IsChecked = _cfg.Longitudinal.AnchorInAdjacent, Margin = Pad };
+            AddRow(form, r++, "Extremos contra otro cimiento:", _anchorAdjacent,
+                   "En un extremo sin prolongacion que llega a otro cimiento (en T, en una esquina que no sigue el recorrido o en la que cierra " +
+                   "un anillo), las barras corridas y los bastones atraviesan ese cimiento y terminan en su cara opuesta, menos el recubrimiento " +
+                   "de extremos, en vez de quedarse en la cara. Solo si el hormigon contiguo termina a menos de 2 m (o dos anchos).");
             var legRow = new StackPanel { Orientation = Orientation.Horizontal };
             _leg = NumBox(_cfg.Longitudinal.LegMm);
             _legStart = new CheckBox { Content = "en el inicio", IsChecked = _cfg.Longitudinal.LegAtStart, Margin = Pad, VerticalAlignment = VerticalAlignment.Center };
@@ -887,6 +892,7 @@ namespace FootingRebar
             c.Longitudinal.StartExtensionMm = ReadNum(_longStart, "prolongacion en el inicio", 0, errors);
             c.Longitudinal.EndExtensionMm = ReadNum(_longEnd, "prolongacion en el fin", 0, errors);
             c.Longitudinal.EndCoverMm = ReadNum(_endCover, "recubrimiento en extremos", 0, errors);
+            c.Longitudinal.AnchorInAdjacent = _anchorAdjacent.IsChecked == true;
             c.Longitudinal.LegMm = ReadNum(_leg, "patilla", 0, errors);
             c.Longitudinal.LegAtStart = _legStart.IsChecked == true;
             c.Longitudinal.LegAtEnd = _legEnd.IsChecked == true;

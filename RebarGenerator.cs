@@ -26,6 +26,8 @@ namespace FootingRebar
         /// <summary>Conjuntos que Revit no pudo crear.</summary>
         public List<string> Failed = new List<string>();
         public List<string> Warnings = new List<string>();
+        /// <summary>Informacion para el resumen (anclajes en el cimiento contiguo...).</summary>
+        public List<string> Notes = new List<string>();
         public int Bars, BastonBars, StirrupSets, Stirrups;
         public string Summary => Bars + " barras corridas" + (BastonBars > 0 ? ", " + BastonBars + " de bastones" : "") + ", " +
                                  Stirrups + " estribos en " + StirrupSets + " conjuntos";
@@ -39,6 +41,8 @@ namespace FootingRebar
         public BastonCfg Cfg;
         public double W0, W1;
         public string Label;
+        /// <summary>Tramo pegado al inicio / al fin sin anclaje propio: se puede anclar en el cimiento contiguo.</summary>
+        public bool AtStart, AtEnd;
     }
 
     public static class RebarGenerator
@@ -61,6 +65,13 @@ namespace FootingRebar
             public double Tol;
             public bool HookLeft, HookChecked;
             public ElementId Hook = ElementId.InvalidElementId;
+            /// <summary>Anclar los extremos sin prolongacion en el cimiento contiguo.</summary>
+            public bool Anchor;
+            /// <summary>Hasta donde se busca hormigon contiguo en un extremo (pies): si sigue mas alla, no es un cimiento que cruza.</summary>
+            public double ReachCap;
+            /// <summary>Lo que mas se han prolongado las barras en el inicio / en el fin al anclarse (pies).</summary>
+            public double AnchoredStart, AnchoredEnd;
+            public bool WarnedSplit;
         }
 
         // =================================================================
@@ -116,8 +127,16 @@ namespace FootingRebar
             List<BastonRange> bastones = BastonRanges(item.Section, cfg, out List<string> bErrors);
             if (bErrors.Count > 0) throw new InvalidOperationException(string.Join(" | ", bErrors));
 
+            // hormigon contiguo (cimientos a los que llega en T o en esquina, columnas en las uniones):
+            // sirve para anclar los extremos y cuenta como hormigon en las comprobaciones
+            c.Anchor = cfg.Longitudinal.AnchorInAdjacent;
+            c.ReachCap = Math.Max(Mm(2000), 2 * c.S.Profile.Width);
+            c.S.ExtraSolids = NearbySolids(doc, c.S, c.ReachCap);
+
             Longitudinals(c, types, bastones);
             if (!c.Result.Safe) return c.Result;
+            if (c.AnchoredStart > 0) c.Result.Notes.Add("inicio anclado en el cimiento contiguo (barras prolongadas hasta " + ToMm(c.AnchoredStart) + " mm mas alla de la cara)");
+            if (c.AnchoredEnd > 0) c.Result.Notes.Add("fin anclado en el cimiento contiguo (barras prolongadas hasta " + ToMm(c.AnchoredEnd) + " mm mas alla de la cara)");
             Stirrups(c, btStirrup);
             return c.Result;
         }
@@ -185,9 +204,9 @@ namespace FootingRebar
                 double anchor = Mm(b.AnchorMm);
                 if (len > L + 1e-9) { errors.Add(name + ": la longitud (" + Math.Round(lenMm) + " mm) es mayor que la viga"); continue; }
                 if (pos == 0 || pos == 2)
-                    list.Add(new BastonRange { Index = i, Cfg = b, W0 = anchor > 0 ? -anchor : endCover, W1 = len, Label = "inicio " + Math.Round(lenMm) });
+                    list.Add(new BastonRange { Index = i, Cfg = b, W0 = anchor > 0 ? -anchor : endCover, W1 = len, Label = "inicio " + Math.Round(lenMm), AtStart = anchor <= 0 });
                 if (pos == 1 || pos == 2)
-                    list.Add(new BastonRange { Index = i, Cfg = b, W0 = L - len, W1 = anchor > 0 ? L + anchor : L - endCover, Label = "fin " + Math.Round(lenMm) });
+                    list.Add(new BastonRange { Index = i, Cfg = b, W0 = L - len, W1 = anchor > 0 ? L + anchor : L - endCover, Label = "fin " + Math.Round(lenMm), AtEnd = anchor <= 0 });
             }
             foreach (BastonRange r in list)
                 if (r.W1 - r.W0 < Mm(50)) errors.Add("baston " + (r.Index + 1) + " (" + r.Cfg.Describe + "): tramo demasiado corto");
@@ -209,64 +228,301 @@ namespace FootingRebar
             double leg = Mm(L.LegMm);
             bool warnedLegs = false;
 
+            bool corners = s.Chain != null && s.Chain.HasCorners;
+
             foreach ((PlanBar first, int count, double step) in c.Plan.ArrayRows(c.Tol))
             {
                 RebarBarType bt = types[first.TypeName];
                 double db = bt.BarNominalDiameter;
-                var ranges = new List<(double w0, double w1, string label, bool legStart, bool legEnd, string face)>();
+                var ranges = new List<(double w0, double w1, string label, bool legStart, bool legEnd, string face, bool anchorStart, bool anchorEnd)>();
                 if (first.IsBaston)
                 {
                     foreach (BastonRange r in bastones.Where(r => r.Index == first.Baston))
-                        ranges.Add((r.W0, r.W1, r.Label, false, false, "baston"));
+                        ranges.Add((r.W0, r.W1, r.Label, false, false, "baston", r.AtStart, r.AtEnd));
                 }
                 else
                 {
                     ranges.Add((ext0 > 0 ? -ext0 : endCover, ext1 > 0 ? s.Length + ext1 : s.Length - endCover, "",
-                                leg > 0 && L.LegAtStart && !first.IsSide, leg > 0 && L.LegAtEnd && !first.IsSide, first.IsSide ? "lateral" : first.Top ? "superior" : "inferior"));
+                                leg > 0 && L.LegAtStart && !first.IsSide, leg > 0 && L.LegAtEnd && !first.IsSide, first.IsSide ? "lateral" : first.Top ? "superior" : "inferior",
+                                ext0 <= 0, ext1 <= 0));
                 }
 
-                foreach ((double w0, double w1, string label, bool legStart, bool legEnd, string face) in ranges)
+                foreach ((double w0, double w1, string label, bool legStart, bool legEnd, string face, bool anchorStart, bool anchorEnd) in ranges)
                 {
                     if (w1 - w0 < MinSeg) { c.Result.Rejected.Add(first.Label + ": sin longitud"); return; }
                     string name = first.Label + (label.Length > 0 ? " " + label : "") +
                                   (count > 1 ? " (" + count + " barras cada " + ToMm(step) + " mm)" : "") + " u=" + ToMm(first.U);
-                    List<(double w, double v)> path = BarPaths.Path(s.Profile, first.Top, first.FaceOffset, w0, w1,
-                                                                    JogInset(c.Cfg, c.Plan.Ds, db), c.Tol, c.Result.Warnings, first.Label);
+
+                    // anclaje en el cimiento al que llega cada extremo: lo que hay de hormigon contiguo mas alla
+                    // de la cara (0 si no hay); en un array, el menor de todas sus barras (todas iguales)
+                    var reach = new List<(double start, double end)>();
+                    for (int k = 0; k < count; k++)
+                    {
+                        double uk = first.U + k * step;
+                        reach.Add((c.Anchor && anchorStart ? EndReach(c, first, uk, false) : 0,
+                                   c.Anchor && anchorEnd ? EndReach(c, first, uk, true) : 0));
+                    }
+                    List<(double w, double v)> PathOf(double r0, double r1, bool warn)
+                    {
+                        if (r0 > 0) c.AnchoredStart = Math.Max(c.AnchoredStart, r0 - (w0 > 0 ? w0 : 0));
+                        if (r1 > 0) c.AnchoredEnd = Math.Max(c.AnchoredEnd, r1 - (w1 < s.Length ? s.Length - w1 : 0));
+                        return BarPaths.Path(s.Profile, first.Top, first.FaceOffset, w0 - r0, w1 + r1,
+                                             JogInset(c.Cfg, c.Plan.Ds, db), c.Tol, warn ? c.Result.Warnings : null, first.Label);
+                    }
+
                     // patilla en el inicio: las superiores bajan, las inferiores suben
                     double legDir = first.Top ? -1 : 1;
-                    bool corners = s.Chain != null && s.Chain.HasCorners;
-                    // en un recorrido con esquinas cada barra dobla en planta: es plana solo en horizontal, asi que
-                    // va sin patillas, una a una (no como array) y con la normal vertical
-                    bool useLegStart = legStart, useLegEnd = legEnd;
-                    if (corners && (legStart || legEnd) && !warnedLegs)
+                    if (corners)
                     {
-                        c.Result.Warnings.Add("las patillas se omiten en las barras que doblan en las esquinas del recorrido");
-                        warnedLegs = true;
+                        // en un recorrido con esquinas cada barra dobla en planta: es plana solo en horizontal, asi que
+                        // va sin patillas, una a una (no como array) y con la normal vertical
+                        if ((legStart || legEnd) && !warnedLegs)
+                        {
+                            c.Result.Warnings.Add("las patillas se omiten en las barras que doblan en las esquinas del recorrido");
+                            warnedLegs = true;
+                        }
+                        for (int kbar = 0; kbar < count; kbar++)
+                        {
+                            double u = first.U + kbar * step;
+                            List<(double w, double v)> path = PathOf(reach[kbar].start, reach[kbar].end, kbar == 0);
+                            string barName = name + (count > 1 ? " barra " + (kbar + 1) : "");
+                            if (!PlaceChainBar(c, barName, bt, s.Chain.Polyline(u, path), face)) return;
+                        }
                     }
-                    if (corners) { useLegStart = false; useLegEnd = false; }
-                    int singles = corners ? count : 1;
-                    for (int kbar = 0; kbar < singles; kbar++)
+                    else
                     {
-                        double u = first.U + kbar * step;
+                        List<(double w, double v)> path = PathOf(reach.Min(q => q.start), reach.Min(q => q.end), true);
+                        double u = first.U;
                         var curves = new List<Curve>();
-                        List<XYZ> pts = corners ? s.Chain.Polyline(u, path)
-                            : path.Select(q => s.World(u, q.v, q.w)).ToList();
-                        if (useLegStart) AddLine(curves, s.World(u, path[0].v + legDir * leg, path[0].w), pts[0]);
+                        List<XYZ> pts = path.Select(q => s.World(u, q.v, q.w)).ToList();
+                        if (legStart) AddLine(curves, s.World(u, path[0].v + legDir * leg, path[0].w), pts[0]);
                         for (int i = 0; i + 1 < pts.Count; i++) AddLine(curves, pts[i], pts[i + 1]);
-                        if (useLegEnd)
+                        if (legEnd)
                         {
                             var e = path[path.Count - 1];
                             AddLine(curves, pts[pts.Count - 1], s.World(u, e.v + legDir * leg, e.w));
                         }
                         if (curves.Count == 0) { c.Result.Rejected.Add(name + ": sin geometria"); return; }
-                        XYZ normal = corners ? XYZ.BasisZ : s.DirU;
-                        bool ok = Place(c, name + (corners && count > 1 ? " barra " + (kbar + 1) : ""), bt, RebarStyle.Standard, ElementId.InvalidElementId, true,
-                                        normal, curves, corners ? 1 : count, step, longitudinal: true, face: face, host: s.Host);
+                        bool ok = Place(c, name, bt, RebarStyle.Standard, ElementId.InvalidElementId, true,
+                                        s.DirU, curves, count, step, longitudinal: true, face: face, host: s.Host);
                         if (!ok) return;
                     }
                     if (first.IsBaston) c.Result.BastonBars += count; else c.Result.Bars += count;
                 }
             }
+        }
+
+        // -----------------------------------------------------------------
+        // Barras de un recorrido con esquinas
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Coloca una barra que sigue un recorrido con esquinas (polilinea en el modelo). Revit
+        /// solo le da forma si el proyecto tiene alguna forma de armadura con parametros
+        /// suficientes para todos sus segmentos (si no, CreateFromCurves devuelve null); en ese
+        /// caso, o si la barra no es plana (tramos a distinta cota), se parte en una esquina en
+        /// dos barras que se cruzan en ella, cada una prolongada hasta la cara opuesta del
+        /// tramo que sigue (anclaje), y se vuelve a intentar con cada trozo. Una barra recta se
+        /// crea siempre. False si algo queda fuera del hormigon (se deshace el recorrido).
+        /// </summary>
+        private static bool PlaceChainBar(Ctx c, string name, RebarBarType bt, List<XYZ> pts, string face)
+        {
+            pts = FootingChain.Clean(pts, Mm(1));
+            if (pts.Count < 2) { c.Result.Rejected.Add(name + ": sin geometria"); return false; }
+
+            XYZ normal = PlaneNormal(pts, c.Tol, out List<XYZ> flat);
+            string revitError = null;
+            if (normal != null)
+            {
+                var curves = new List<Curve>();
+                for (int i = 0; i + 1 < flat.Count; i++) AddLine(curves, flat[i], flat[i + 1]);
+                if (curves.Count == 0) { c.Result.Rejected.Add(name + ": sin geometria"); return false; }
+                if (!TryPlace(c, name, bt, RebarStyle.Standard, ElementId.InvalidElementId, true, normal, curves, 1, 0,
+                              longitudinal: true, face: face, checkHooks: false, flip: null, host: c.S.Host, out revitError))
+                    return false;
+                if (revitError == null) return true;
+            }
+            if (pts.Count < 3)
+            {
+                c.Result.Failed.Add(name + ": Revit no pudo crear la barra (" + (revitError ?? "geometria no plana") + ")");
+                return true;
+            }
+
+            // partir en una esquina: la de mas giro mas cercana a la mitad de la barra
+            int k = SplitVertex(pts);
+            XYZ p = pts[k];
+            XYZ dIn = (pts[k] - pts[k - 1]).Normalize(), dOut = (pts[k + 1] - pts[k]).Normalize();
+            double endCover = Mm(c.Cfg.Longitudinal.EndCoverMm);
+            double extA = 0, extB = 0;
+            if (dIn.DotProduct(dOut) < Math.Cos(30 * Math.PI / 180))
+            {
+                // cada trozo sigue recto pasada la esquina hasta la cara opuesta del tramo que sigue (solo hormigon del recorrido)
+                List<Solid> own = c.S.Chain.Solids();
+                extA = Math.Max(0, Math.Min(Reach(own, p, dIn, c.ReachCap), c.ReachCap) - endCover);
+                extB = Math.Max(0, Math.Min(Reach(own, p, -dOut, c.ReachCap), c.ReachCap) - endCover);
+            }
+            var a = pts.Take(k + 1).ToList();
+            if (extA > MinSeg) a.Add(p + dIn * extA);
+            var b = new List<XYZ>();
+            if (extB > MinSeg) b.Add(p - dOut * extB);
+            b.AddRange(pts.Skip(k));
+            if (!c.WarnedSplit)
+            {
+                c.Result.Warnings.Add("algunas barras del recorrido se han partido en las esquinas (" +
+                                      (revitError != null ? "Revit no tiene en el proyecto una forma de armadura con tantos segmentos" : "los tramos no estan a la misma cota") +
+                                      "): los trozos se cruzan en la esquina y cada uno sigue hasta la cara opuesta del tramo siguiente");
+                c.WarnedSplit = true;
+            }
+            return PlaceChainBar(c, name + " trozo 1", bt, a, face) && PlaceChainBar(c, name + " trozo 2", bt, b, face);
+        }
+
+        /// <summary>Vertice interior por el que partir una barra: la esquina de verdad (mas de 30 grados) mas cercana a la mitad; si no hay, el del medio.</summary>
+        private static int SplitVertex(List<XYZ> pts)
+        {
+            double mid = 0.5 * (pts.Count - 1);
+            int best = -1;
+            for (int i = 1; i + 1 < pts.Count; i++)
+            {
+                XYZ dIn = (pts[i] - pts[i - 1]).Normalize(), dOut = (pts[i + 1] - pts[i]).Normalize();
+                if (dIn.DotProduct(dOut) >= Math.Cos(30 * Math.PI / 180)) continue;
+                if (best < 0 || Math.Abs(i - mid) < Math.Abs(best - mid)) best = i;
+            }
+            return best >= 0 ? best : Math.Max(1, Math.Min(pts.Count - 2, (int)Math.Round(mid)));
+        }
+
+        /// <summary>
+        /// Normal del plano de la barra, con los puntos ajustados exactamente a el (Revit exige
+        /// curvas en un plano): vertical si todos estan a la misma cota (dentro de tol), el
+        /// plano que forman si no (una barra recta con bayonetas), o null si no son planos.
+        /// </summary>
+        private static XYZ PlaneNormal(List<XYZ> pts, double tol, out List<XYZ> flat)
+        {
+            double z = pts.Average(q => q.Z);
+            if (pts.All(q => Math.Abs(q.Z - z) <= tol))
+            {
+                flat = pts.Select(q => new XYZ(q.X, q.Y, z)).ToList();
+                return XYZ.BasisZ;
+            }
+            XYZ n = null;
+            for (int i = 0; i + 1 < pts.Count && n == null; i++)
+                for (int j = i + 1; j + 1 < pts.Count && n == null; j++)
+                {
+                    XYZ cr = (pts[i + 1] - pts[i]).CrossProduct(pts[j + 1] - pts[j]);
+                    if (cr.GetLength() > 1e-6 * (pts[i + 1] - pts[i]).GetLength() * (pts[j + 1] - pts[j]).GetLength()) n = cr.Normalize();
+                }
+            if (n == null)
+            {
+                // recta
+                XYZ d = (pts[pts.Count - 1] - pts[0]).Normalize();
+                n = Math.Abs(d.Z) > 0.99 ? XYZ.BasisX : XYZ.BasisZ.CrossProduct(d).Normalize();
+            }
+            XYZ o = pts[0];
+            if (pts.Any(q => Math.Abs((q - o).DotProduct(n)) > 0.5 * tol)) { flat = null; return null; }
+            flat = pts.Select(q => q - n * (q - o).DotProduct(n)).ToList();
+            return n;
+        }
+
+        // -----------------------------------------------------------------
+        // Hormigon contiguo: anclaje de los extremos
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Hormigon que hay mas alla de la cara extrema (inicio o fin) en la recta de la barra:
+        /// la distancia desde la cara hasta donde termina el hormigon contiguo (el cimiento al
+        /// que llega en T o en esquina, o el propio recorrido en la esquina que cierra un
+        /// anillo). 0 si no hay hormigon contiguo o si sigue mas alla del limite (no es un
+        /// cimiento que cruza, sino otro que sigue en la misma direccion).
+        /// </summary>
+        private static double EndReach(Ctx c, PlanBar bar, double u, bool atEnd)
+        {
+            BeamSection s = c.S;
+            double w = atEnd ? s.Length : 0;
+            XYZ p = s.World(u, bar.V(s.Profile.WebAt(w)), w);
+            XYZ dir = s.Chain != null
+                ? (atEnd ? s.Chain.Segs[s.Chain.Segs.Count - 1].Dir : -s.Chain.Segs[0].Dir)
+                : (atEnd ? s.DirW : -s.DirW);
+            double reach = Reach(s.AllSolids(), p, dir, c.ReachCap);
+            return reach < Mm(10) || reach >= c.ReachCap - MinSeg ? 0 : reach;
+        }
+
+        /// <summary>
+        /// Distancia desde p, en la direccion dir, hasta donde termina el hormigon continuo
+        /// (union de los solidos, sin huecos de mas de medio milimetro), como mucho "cap".
+        /// 0 si p no esta en el hormigon.
+        /// </summary>
+        private static double Reach(IList<Solid> solids, XYZ p, XYZ dir, double cap)
+        {
+            const double back = 0.0164;   // 5 mm por detras, para empezar dentro del propio hormigon
+            Line probe;
+            try { probe = Line.CreateBound(p - dir * back, p + dir * cap); }
+            catch { return 0; }
+            var spans = new List<(double a, double b)>();
+            var opt = new SolidCurveIntersectionOptions { ResultType = SolidCurveIntersectionMode.CurveSegmentsInside };
+            foreach (Solid solid in solids)
+            {
+                if (solid == null) continue;
+                try
+                {
+                    SolidCurveIntersection ix = solid.IntersectWithCurve(probe, opt);
+                    if (ix == null) continue;
+                    for (int i = 0; i < ix.SegmentCount; i++)
+                    {
+                        Curve seg = ix.GetCurveSegment(i);
+                        double a = (seg.GetEndPoint(0) - p).DotProduct(dir), b = (seg.GetEndPoint(1) - p).DotProduct(dir);
+                        spans.Add((Math.Min(a, b), Math.Max(a, b)));
+                    }
+                }
+                catch { }
+            }
+            double gap = 0.5 * InsideTol, reach = 0;
+            foreach ((double a, double b) in spans.OrderBy(x => x.a))
+            {
+                if (a > reach + gap) break;
+                reach = Math.Max(reach, b);
+            }
+            return reach;
+        }
+
+        /// <summary>
+        /// Solidos de los elementos de hormigon (cimentaciones, vigas y columnas que admiten
+        /// armadura) que tocan los extremos y las uniones del recorrido, sin contar sus tramos.
+        /// </summary>
+        private static List<Solid> NearbySolids(Document doc, BeamSection s, double cap)
+        {
+            var result = new List<Solid>();
+            var own = new HashSet<ElementId>(s.Chain != null ? s.Chain.Segs.Select(g => g.Item.Host.Id) : new[] { s.Host.Id });
+            var seen = new HashSet<ElementId>();
+            var spots = new List<(double w, double radius)> { (0, cap + s.Profile.Width), (s.Length, cap + s.Profile.Width) };
+            if (s.Chain != null) spots.AddRange(s.Chain.Segs.Skip(1).Select(g => (g.W0, 2 * s.Profile.Width)));
+            var categories = new ElementMulticategoryFilter(new List<BuiltInCategory>
+            {
+                BuiltInCategory.OST_StructuralFoundation, BuiltInCategory.OST_StructuralFraming, BuiltInCategory.OST_StructuralColumns
+            });
+            foreach ((double w, double radius) in spots)
+            {
+                Rect web = s.Profile.WebAt(w);
+                XYZ p = s.World(web.CU, web.CV, w);
+                var box = new XYZ(radius, radius, radius);
+                IEnumerable<Element> near;
+                try
+                {
+                    near = new FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(categories)
+                        .WherePasses(new BoundingBoxIntersectsFilter(new Outline(p - box, p + box))).ToList();
+                }
+                catch { continue; }
+                foreach (Element e in near)
+                {
+                    if (own.Contains(e.Id) || !seen.Add(e.Id)) continue;
+                    try
+                    {
+                        RebarHostData hd = RebarHostData.GetRebarHostData(e);
+                        if (hd == null || !hd.IsValidHost()) continue;   // solo hormigon
+                        result.AddRange(BeamSection.Solids(e));
+                    }
+                    catch { }
+                }
+            }
+            return result;
         }
 
         // -----------------------------------------------------------------
@@ -353,6 +609,18 @@ namespace FootingRebar
                                   XYZ normal, List<Curve> curves, int count, double spacing, bool longitudinal, string face,
                                   bool checkHooks = false, Action flip = null, Element host = null)
         {
+            bool ok = TryPlace(c, name, bt, style, hook, hookLeft, normal, curves, count, spacing, longitudinal, face, checkHooks, flip, host,
+                               out string revitError);
+            if (ok && revitError != null) c.Result.Failed.Add(name + ": Revit no pudo crear la barra (" + revitError + ")");
+            return ok;
+        }
+
+        /// <summary>Como Place, pero si Revit no puede crear la barra no lo apunta: lo devuelve en revitError (y true).</summary>
+        private static bool TryPlace(Ctx c, string name, RebarBarType bt, RebarStyle style, ElementId hook, bool hookLeft,
+                                     XYZ normal, List<Curve> curves, int count, double spacing, bool longitudinal, string face,
+                                     bool checkHooks, Action flip, Element host, out string revitError)
+        {
+            revitError = null;
             host = host ?? c.S.Host;
             normal = normal.Normalize();
             bool array = count >= 2 && spacing > MinSeg;
@@ -377,7 +645,11 @@ namespace FootingRebar
             for (int attempt = 0; attempt < 2; attempt++)
             {
                 Rebar rb = Create(c.Doc, host, bt, style, hook, hookLeft, normal, curves, out string err);
-                if (rb == null) { c.Result.Failed.Add(name + ": Revit no pudo crear la barra (" + err + ")"); return true; }
+                if (rb == null)
+                {
+                    revitError = err ?? "no hay en el proyecto ninguna forma de armadura que encaje ni con la que crear una para estos segmentos";
+                    return true;
+                }
 
                 if (array) rb.GetShapeDrivenAccessor().SetLayoutAsFixedNumber(count, (count - 1) * spacing, true, true, true);
                 else rb.GetShapeDrivenAccessor().SetLayoutAsSingle();

@@ -60,6 +60,13 @@ namespace FootingRebar
         public double EndExtensionMm { get; set; } = 0;
         /// <summary>Recubrimiento en los extremos de la viga cuando la barra no se prolonga (mm).</summary>
         public double EndCoverMm { get; set; } = 40;
+        /// <summary>
+        /// En un extremo sin prolongacion que llega a otro cimiento (en T, en una esquina que no
+        /// sigue el recorrido o en la que cierra un anillo), las barras corridas y los bastones
+        /// de ese extremo atraviesan el hormigon contiguo y terminan en su cara opuesta, menos
+        /// el recubrimiento de extremos, en vez de quedarse en la cara de este cimiento.
+        /// </summary>
+        public bool AnchorInAdjacent { get; set; } = true;
         /// <summary>Patilla a 90 grados en los extremos prolongados (mm): las superiores doblan hacia abajo y las inferiores hacia arriba. 0 = sin patilla. Necesita prolongacion.</summary>
         public double LegMm { get; set; } = 0;
         public bool LegAtStart { get; set; } = true;

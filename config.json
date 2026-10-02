@@ -18,6 +18,7 @@
     "startExtensionMm": 0,
     "endExtensionMm": 0,
     "endCoverMm": 40,
+    "anchorInAdjacent": true,
     "legMm": 0,
     "legAtStart": true,
     "legAtEnd": true,

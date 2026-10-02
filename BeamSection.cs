@@ -46,8 +46,15 @@ namespace FootingRebar
         public XYZ World(double u, double v, double w) =>
             Chain != null ? Chain.World(u, v, w) : Origin + DirU * u + DirV * v + DirW * w;
 
-        /// <summary>Solidos contra los que se comprueban las barras (uno por tramo en una cadena).</summary>
-        public List<Solid> AllSolids() => Chain != null ? Chain.Solids() : new List<Solid> { HostSolid };
+        /// <summary>
+        /// Hormigon contiguo en los extremos (los cimientos a los que llega en T o en esquina):
+        /// las barras que se anclan en ellos tambien se comprueban contra estos solidos.
+        /// </summary>
+        public List<Solid> ExtraSolids = new List<Solid>();
+
+        /// <summary>Solidos contra los que se comprueban las barras (uno por tramo en una cadena, mas el hormigon contiguo).</summary>
+        public List<Solid> AllSolids() =>
+            (Chain != null ? Chain.Solids() : new List<Solid> { HostSolid }).Concat(ExtraSolids ?? new List<Solid>()).ToList();
 
         /// <summary>Seccion sintetica de un recorrido: el perfil de los tramos concatenado y el mapeo por la cadena.</summary>
         public static BeamSection ForChain(FootingChain chain, double tol, out string error)

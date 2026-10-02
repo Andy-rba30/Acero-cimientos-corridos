@@ -119,6 +119,8 @@ namespace FootingRebar
                             string line = tag + desc + "  ->  " + res.Summary + " (" + res.Created.Count + " conjuntos)";
                             if (res.Failed.Count > 0)
                                 line += "  INCOMPLETO, no se pudieron crear: " + string.Join(" | ", res.Failed);
+                            if (res.Notes.Count > 0)
+                                line += "  NOTAS: " + string.Join(" | ", res.Notes);
                             if (res.Warnings.Count > 0)
                                 line += "  AVISOS: " + string.Join(" | ", res.Warnings);
                             log.Add(line);
