@@ -33,7 +33,7 @@ namespace FootingRebar
 
             if (hosts.Count == 0)
             {
-                message = "No se selecciono ningun cimiento (cimentacion estructural o viga de cimentacion).";
+                message = "No se selecciono ningun cimiento ni sobrecimiento (cimentacion estructural, viga de cimentacion, suelo estructural o muro estructural).";
                 return Result.Cancelled;
             }
 
@@ -59,9 +59,12 @@ namespace FootingRebar
             }
 
             // --- 1. Analisis geometrico de cada elemento (solo lectura, sin transaccion) ---
-            var single = hosts.Select(h => HostAnalysis.Analyze(doc, h, cfg)).ToList();
+            // un cimiento modelado como suelo (Floor) con esquinas se parte en tramos rectos
+            var stripNotes = new List<string>();
+            var single = hosts.SelectMany(h => HostAnalysis.AnalyzeAll(doc, h, cfg, stripNotes)).ToList();
             // los cimientos armables se encadenan por sus extremos en recorridos
             var items = HostAnalysis.Chained(doc, single, cfg, out List<string> chainNotes);
+            chainNotes.InsertRange(0, stripNotes);
 
             // --- 2. Interfaz: el usuario revisa que se ha detectado y elige el armado ---
             var win = new RebarOptionsWindow(doc, cfg.Clone(), barTypes, diametersMm, hookTypes, hookAngles, items);
@@ -74,7 +77,7 @@ namespace FootingRebar
             var log = new List<string>();
             int total = 0, armed = 0, rejected = 0;
 
-            using (Transaction tx = new Transaction(doc, "Armar cimientos corridos"))
+            using (Transaction tx = new Transaction(doc, "Armar cimientos / sobrecimientos"))
             {
                 tx.Start();
                 foreach (HostAnalysis item in items)
@@ -140,9 +143,9 @@ namespace FootingRebar
                 tx.Commit();
             }
 
-            var td = new TaskDialog("Armado de cimientos corridos")
+            var td = new TaskDialog("Armado de cimientos / sobrecimientos")
             {
-                MainInstruction = total + " conjuntos de armadura creados en " + armed + " de " + hosts.Count + " elemento(s).",
+                MainInstruction = total + " conjuntos de armadura creados en " + armed + " de " + items.Count + " elemento(s) / tramo(s) / recorrido(s).",
                 MainContent = string.Join(Environment.NewLine, chainNotes.Concat(log))
             };
             if (rejected > 0)
@@ -166,15 +169,18 @@ namespace FootingRebar
 
             IList<Reference> refs = uidoc.Selection.PickObjects(
                 ObjectType.Element, new HostFilter(),
-                "Selecciona los cimientos corridos a armar (todos los tramos del recorrido) y pulsa Finalizar");
+                "Selecciona los cimientos o sobrecimientos a armar (cimentaciones, vigas de cimentacion, suelos o muros estructurales; todos los tramos del recorrido) y pulsa Finalizar");
             return refs.Select(r => doc.GetElement(r)).ToList();
         }
 
+        /// <summary>Cimentaciones estructurales, vigas de cimentacion, cimientos modelados como suelo (Floor, incluidas las losas de cimentacion) y sobrecimientos modelados como muro (Wall).</summary>
         private static bool IsCandidate(Element e)
         {
             if (e == null || e.Category == null) return false;
+            if (e is Floor || e is Wall) return true;
             long id = e.Category.Id.Value;
-            return id == (long)BuiltInCategory.OST_StructuralFoundation || id == (long)BuiltInCategory.OST_StructuralFraming;
+            return id == (long)BuiltInCategory.OST_StructuralFoundation || id == (long)BuiltInCategory.OST_StructuralFraming ||
+                   id == (long)BuiltInCategory.OST_Floors || id == (long)BuiltInCategory.OST_Walls;
         }
 
         private class HostFilter : ISelectionFilter

@@ -112,7 +112,7 @@ namespace FootingRebar
             }
             foreach (BastonCfg b in _cfg.Bastones) _bastonStore.Add(b.Clone());
 
-            Title = "Armar cimientos corridos";
+            Title = "Armar cimientos / sobrecimientos";
             Width = 1240;
             Height = 860;
             MinWidth = 1000;
@@ -178,7 +178,7 @@ namespace FootingRebar
             int ok = _items.Count(i => i.CanBuild);
             var group = new GroupBox
             {
-                Header = "Cimientos / recorridos: " + _items.Count + " (" + ok + " armables). Los tramos que se tocan por los extremos forman un recorrido. Haz clic en uno para verlo. " +
+                Header = "Cimientos / sobrecimientos / recorridos: " + _items.Count + " (" + ok + " armables). Los tramos que se tocan por los extremos forman un recorrido. Haz clic en uno para verlo. " +
                          "A la derecha, la distribucion de estribos propia de cada recorrido (vacio = la general).",
                 Padding = new Thickness(4)
             };
@@ -697,6 +697,8 @@ namespace FootingRebar
             AddRow(grid, r++, "Cimiento unido a otros elementos:", _joined,
                    "Que geometria usar cuando columnas o losas le quitan hormigon a la viga (Unir geometria o recorte). Auto: la seccion se lee de la " +
                    "geometria completa de la familia (todo el canto aunque la losa lo tape) y la longitud del solido cortado (entre caras de columna). " +
+                   "Un muro (sobrecimiento) no tiene geometria de familia: se usa siempre su solido cortado, y si las columnas unidas con prioridad " +
+                   "lo parten en trozos, cada trozo se arma como un tramo aparte (sin armadura del muro dentro de la columna). " +
                    "Se aplica al volver a lanzar el comando (guardalo como valor por defecto).");
             _partition = new TextBox { Text = _cfg.PartitionTemplate, Margin = Pad };
             AddRow(grid, r++, "Particion:", _partition, "Plantilla del parametro Particion de cada barra. Comodines: " + PartitionName.Help);

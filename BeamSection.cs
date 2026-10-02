@@ -92,27 +92,51 @@ namespace FootingRebar
         // ------------------------------------------------------------------
         // Deduccion
         // ------------------------------------------------------------------
-        public static BeamSection Probe(Document doc, Element host, AppConfig cfg, XYZ forceDir = null)
+        /// <param name="forceDir">Direccion del eje impuesta (null = se deduce del elemento).</param>
+        /// <param name="clip">Prisma que recorta el trozo del elemento a leer (un tramo recto de un suelo); null = el elemento entero.</param>
+        /// <param name="piece">
+        /// Trozo macizo del elemento que se lee tal cual: uno de los trozos en que lo parten los
+        /// elementos unidos que lo cortan (ver SplitAlongAxis); null = el solido del elemento.
+        /// </param>
+        public static BeamSection Probe(Document doc, Element host, AppConfig cfg, XYZ forceDir = null, Solid clip = null, Solid piece = null)
         {
             LastError = null;
             var s = new BeamSection { Host = host };
 
-            List<Solid> cut = Solids(host);
-            if (cut.Count == 0) { LastError = "el elemento no tiene geometria solida"; return null; }
-            if (cut.Count > 1 && cut[1].Volume > 0.01 * cut[0].Volume)
+            List<Solid> cut;
+            if (piece != null)
             {
-                LastError = "el elemento tiene " + cut.Count + " solidos; se esperaba uno solo (viga maciza)";
-                return null;
+                if (piece.Volume < 1e-9) { LastError = "el trozo del elemento no tiene hormigon"; return null; }
+                cut = new List<Solid> { piece };
+            }
+            else
+            {
+                cut = Solids(host);
+                if (cut.Count == 0) { LastError = "el elemento no tiene geometria solida"; return null; }
+                if (cut.Count > 1 && cut[1].Volume > 0.01 * cut[0].Volume)
+                {
+                    LastError = "el elemento tiene " + cut.Count + " solidos; se esperaba uno solo (viga maciza)";
+                    return null;
+                }
+                if (clip != null)
+                {
+                    Solid clipped;
+                    try { clipped = BooleanOperationsUtils.ExecuteBooleanOperation(cut[0], clip, BooleanOperationsType.Intersect); }
+                    catch (Exception ex) { LastError = "no se pudo recortar el tramo del suelo (" + ex.Message + ")"; return null; }
+                    if (clipped == null || clipped.Volume < 1e-9) { LastError = "el tramo del suelo no tiene hormigon"; return null; }
+                    cut = new List<Solid> { clipped };
+                }
             }
             s.CutSolid = cut[0];
             s.SectionSolid = cut[0];
             s.HostSolid = cut[0];
 
             // Geometria completa de la familia, por si otros elementos (columnas, losas) le
-            // han quitado hormigon con uniones o recortes.
+            // han quitado hormigon con uniones o recortes. Un trozo (piece) ya viene cortado a
+            // proposito por esos elementos: se lee tal cual, sin recuperar nada.
             int mode = cfg.JoinedIndex;   // 0 auto, 1 cortada, 2 completa
             Solid whole = null;
-            if (mode != 1 && host is FamilyInstance fi)
+            if (piece == null && mode != 1 && host is FamilyInstance fi)
             {
                 whole = OriginalSolid(fi, s.CutSolid);
                 if (whole != null && whole.Volume <= s.CutSolid.Volume * 1.001) whole = null;
@@ -225,6 +249,96 @@ namespace FootingRebar
 
         private static string Vol(Solid s) => (s.Volume * 0.0283168).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
 
+        // ------------------------------------------------------------------
+        // Elemento partido en trozos por los elementos unidos que lo cortan
+        // ------------------------------------------------------------------
+
+        /// <summary>Longitud minima (mm) de un trozo para armarlo; los retales mas cortos se ignoran.</summary>
+        public const double MinPieceMm = 100;
+
+        /// <summary>
+        /// Trozos macizos separados en que queda el solido visible del elemento, ordenados a lo
+        /// largo de su eje. Un muro (sobrecimiento) o un cimiento unido a columnas con
+        /// prioridad para la columna (Unir geometria + Cambiar orden de union) se queda sin
+        /// hormigon donde se cruza con cada columna: Revit lo devuelve como un solo solido con
+        /// varios trozos sueltos. Cada trozo se arma como un tramo aparte, asi no se pone
+        /// armadura del muro dentro de la columna. Null si el solido es una sola pieza, o si se
+        /// va a leer la geometria completa de la familia (modo auto / completa con una familia,
+        /// que no esta partida y se arma de un tiron como hasta ahora). Con "error" si los
+        /// trozos se solapan a lo largo del eje (no es un tramo recto partido).
+        /// </summary>
+        public static List<Solid> SplitAlongAxis(Element host, AppConfig cfg, out string error, out string note)
+        {
+            error = null;
+            note = null;
+            List<Solid> raw = Solids(host);
+            if (raw.Count == 0) return null;   // Probe dara el motivo
+
+            var pieces = new List<Solid>();
+            foreach (Solid sol in raw)
+            {
+                IList<Solid> parts = null;
+                try { parts = SolidUtils.SplitVolumes(sol); } catch { }
+                if (parts == null || parts.Count == 0) pieces.Add(sol);
+                else foreach (Solid p in parts) if (p != null && p.Volume > 1e-9) pieces.Add(p);
+            }
+            if (pieces.Count <= 1) return null;
+
+            // con una familia en modo auto / completa la seccion se lee de su geometria completa
+            // (la de antes de las uniones), que no esta partida: se arma entera, como hasta ahora
+            if (cfg.JoinedIndex != 1 && host is FamilyInstance fi)
+            {
+                Solid whole = OriginalSolid(fi, raw[0]);
+                if (whole != null && whole.Volume > raw[0].Volume * 1.001) return null;
+            }
+
+            XYZ axis = Axis(host, pieces.OrderByDescending(p => p.Volume).First(), out _);
+            if (axis == null) return null;   // Probe dara el motivo
+
+            // extension de cada trozo a lo largo del eje
+            var ranges = new List<(Solid solid, double w0, double w1)>();
+            foreach (Solid p in pieces)
+            {
+                double w0 = double.MaxValue, w1 = double.MinValue;
+                foreach (Edge ed in p.Edges)
+                    foreach (XYZ q in ed.Tessellate())
+                    {
+                        double w = q.DotProduct(axis);
+                        w0 = Math.Min(w0, w);
+                        w1 = Math.Max(w1, w);
+                    }
+                ranges.Add((p, w0, w1));
+            }
+            ranges = ranges.OrderBy(r => r.w0).ToList();
+
+            double tol = Mm(cfg.PrismCheckToleranceMm);
+            var kept = new List<Solid>();
+            var skipped = new List<string>();
+            double last = double.NegativeInfinity;
+            foreach ((Solid solid, double w0, double w1) in ranges)
+            {
+                if (w1 - w0 < Mm(MinPieceMm)) { skipped.Add(ToMm(w1 - w0) + " mm"); continue; }
+                if (w0 < last - tol)
+                {
+                    error = "el elemento tiene " + pieces.Count + " solidos que se solapan a lo largo del eje; se esperaba un solo solido macizo " +
+                            "o trozos consecutivos separados por los elementos unidos que lo cortan";
+                    return null;
+                }
+                last = w1;
+                kept.Add(solid);
+            }
+            if (kept.Count == 0)
+            {
+                error = "el solido esta partido en " + pieces.Count + " trozos y todos miden menos de " + MinPieceMm + " mm a lo largo del eje";
+                return null;
+            }
+            note = "el solido visible esta partido en " + pieces.Count + " trozos a lo largo del eje (columnas u otros elementos unidos con " +
+                   "prioridad le quitan el hormigon donde se cruzan): cada trozo se arma como un tramo aparte y donde no hay hormigon del " +
+                   "elemento no se pone armadura; usa la prolongacion en inicio / fin para anclar las barras dentro de las columnas" +
+                   (skipped.Count > 0 ? ". Se ignoran " + skipped.Count + " retal(es) de menos de " + MinPieceMm + " mm (" + string.Join(", ", skipped) + ")" : "");
+            return kept;
+        }
+
         /// <summary>Direccion del eje de la viga: la curva de ubicacion, la orientacion de la familia o el lado largo de la caja.</summary>
         private static XYZ Axis(Element host, Solid solid, out string error)
         {
@@ -233,7 +347,7 @@ namespace FootingRebar
             if (host.Location is LocationCurve lc && lc.Curve != null)
             {
                 if (lc.Curve is Line ln) d = ln.Direction;
-                else { error = "el eje de la viga no es recto (curva de ubicacion en arco o spline): solo se arman vigas rectas"; return null; }
+                else { error = "el eje del elemento no es recto (curva de ubicacion en arco o spline): solo se arman tramos rectos"; return null; }
             }
             if (d == null && host is Autodesk.Revit.DB.WallFoundation wf)
             {
@@ -256,6 +370,11 @@ namespace FootingRebar
                     if (h != null && h.GetLength() > 0.5) d = h;
                 }
                 catch { }
+            }
+            if (d == null && host is Floor)
+            {
+                // suelo: no tiene curva de ubicacion; el eje es la direccion dominante de su contorno
+                try { d = FloorStrips.DominantDirection(solid); } catch { }
             }
             if (d == null)
             {

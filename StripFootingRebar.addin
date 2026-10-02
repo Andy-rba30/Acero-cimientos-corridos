@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RevitAddIns>
   <AddIn Type="Application">
-    <Name>ARBA Cimientos</Name>
+    <Name>ARBA Cimientos/Sobrecimientos</Name>
     <Assembly>StripFootingRebar\StripFootingRebar.dll</Assembly>
     <FullClassName>FootingRebar.RibbonApp</FullClassName>
     <ClientId>7d2b9e40-51c6-4a8f-9b3d-0e6f1a4c8d27</ClientId>
@@ -11,7 +11,7 @@
   <AddIn Type="Command">
     <Name>Armar cimiento corrido</Name>
     <Text>Armar cimiento corrido</Text>
-    <Description>Genera el armado de cimientos corridos siguiendo su recorrido (tramos rectos encadenados por las esquinas): barras longitudinales por capas con varios diametros, bastones arriba o abajo y estribos rectangulares, a partir de la geometria de los elementos, con una ventana para elegir el armado y los aceros.</Description>
+    <Description>Genera el armado de cimientos corridos y sobrecimientos (cimentaciones, vigas de cimentacion, suelos o muros estructurales) siguiendo su recorrido (tramos rectos encadenados por las esquinas): barras longitudinales por capas con varios diametros, bastones arriba o abajo y estribos rectangulares, a partir de la geometria de los elementos, con una ventana para elegir el armado y los aceros.</Description>
     <Assembly>StripFootingRebar\StripFootingRebar.dll</Assembly>
     <FullClassName>FootingRebar.ArmarCimientoCommand</FullClassName>
     <ClientId>b4e17c39-8f02-4d6a-a5c1-3e9d0b7f2a58</ClientId>
