@@ -30,6 +30,16 @@
       "length": "1500", "anchorMm": 0, "fromMm": 0, "toMm": 0 }
   ],
 
+  "splices": {
+    "commercialLengthMm": 9000,
+    "fcKgCm2": 210,
+    "fyKgCm2": 4200,
+    "classB": true,
+    "fixedLengthMm": 0,
+    "topZone": "center",
+    "bottomZone": "ends"
+  },
+
   "stirrups": {
     "barTypeName": "",
     "hookTypeName": "135",

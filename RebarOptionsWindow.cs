@@ -50,6 +50,11 @@ namespace FootingRebar
         private ComboBox _sideType;
         private CheckBox _legStart, _legEnd;
 
+        // --- empalmes por longitud comercial ---
+        private TextBox _spLc, _spFc, _spFy, _spFixed;
+        private ComboBox _spClass, _spTopZone, _spBotZone;
+        private TextBlock _spliceInfo;
+
         // --- barras por capa de la viga seleccionada ---
         // --- seleccion especial de barras (tipo asignado barra a barra en la viga seleccionada) ---
         private TextBlock _selCaption, _selList;
@@ -323,6 +328,46 @@ namespace FootingRebar
             AddRow(form, r++, "Separacion libre minima (mm):", _minClear, "Hueco libre minimo entre barras de una misma capa (ademas nunca menor que un diametro). Si no se cumple, se avisa.");
             form.Margin = new Thickness(0, 6, 0, 0);
             panel.Children.Add(form);
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Empalmes por traslape (longitud comercial de la barra, ACI 318-19)", FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(4, 10, 4, 2)
+            });
+            var spForm = FormGrid();
+            int sr = 0;
+            _spLc = NumBox(_cfg.Splices.CommercialLengthMm);
+            AddRow(spForm, sr++, "Longitud comercial de barra (mm):", _spLc,
+                   "Longitud de la barra tal como se compra (9000 mm). Las barras corridas mas largas se parten en trozos de como mucho esa " +
+                   "longitud, solapados la longitud de empalme, con una bayoneta de un diametro para que las dos barras se toquen. 0 = sin empalmes.");
+            _spFc = NumBox(_cfg.Splices.FcKgCm2);
+            AddRow(spForm, sr++, "f'c del hormigon (kg/cm2):", _spFc, "Resistencia del hormigon para la longitud de desarrollo ld (ACI 318-19 25.4.2.3).");
+            _spFy = NumBox(_cfg.Splices.FyKgCm2);
+            AddRow(spForm, sr++, "fy del acero (kg/cm2):", _spFy, "Limite elastico del acero (4200 = grado 60).");
+            _spClass = new ComboBox { Margin = Pad, Width = 260, HorizontalAlignment = HorizontalAlignment.Left };
+            _spClass.Items.Add("Clase B: 1.3 ld (todas empalmadas en la misma seccion)");
+            _spClass.Items.Add("Clase A: 1.0 ld");
+            _spClass.SelectedIndex = _cfg.Splices.ClassB ? 0 : 1;
+            AddRow(spForm, sr++, "Clase de empalme a traccion:", _spClass,
+                   "ACI 318-19 25.5.2.1: clase B (1.3 ld) cuando se empalma mas de la mitad del acero en la misma seccion, que es lo que hace este " +
+                   "add-in (todas las barras de una capa se empalman en el mismo sitio). Clase A solo si el acero colocado dobla al necesario.");
+            _spFixed = NumBox(_cfg.Splices.FixedLengthMm);
+            AddRow(spForm, sr++, "Longitud de empalme fija (mm):", _spFixed,
+                   "Si es mayor que 0 se usa esta longitud de empalme para todos los diametros en vez de calcularla (por ejemplo la de la tabla del plano). 0 = calcular.");
+            _spTopZone = new ComboBox { Margin = Pad, Width = 260, HorizontalAlignment = HorizontalAlignment.Left };
+            _spBotZone = new ComboBox { Margin = Pad, Width = 260, HorizontalAlignment = HorizontalAlignment.Left };
+            foreach (string z in SpliceCfg.ZoneLabels) { _spTopZone.Items.Add(z); _spBotZone.Items.Add(z); }
+            _spTopZone.SelectedIndex = SpliceCfg.ZoneIndex(_cfg.Splices.TopZone);
+            _spBotZone.SelectedIndex = SpliceCfg.ZoneIndex(_cfg.Splices.BottomZone);
+            AddRow(spForm, sr++, "Zona de empalme, barras superiores:", _spTopZone,
+                   "Donde va el empalme: en el tercio central de la luz (las superiores trabajan poco ahi) o en los cuartos extremos, lo mas lejos del " +
+                   "apoyo que deja L/4 y fuera de 2h desde su cara (las inferiores). Las laterales van siempre en el tercio central.");
+            AddRow(spForm, sr++, "Zona de empalme, barras inferiores:", _spBotZone,
+                   "Idem para las inferiores: normalmente cerca de los apoyos, donde el momento positivo es pequeno.");
+            spForm.Margin = new Thickness(0, 2, 0, 0);
+            panel.Children.Add(spForm);
+            _spliceInfo = new TextBlock { Foreground = RevitTheme.Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 2, 4, 0) };
+            panel.Children.Add(_spliceInfo);
 
             _selCaption = new TextBlock { Margin = new Thickness(4, 8, 4, 2), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
             panel.Children.Add(_selCaption);
@@ -900,6 +945,16 @@ namespace FootingRebar
             ReadBastonRows(errors);
             c.Bastones = _bastonStore.Select(b => b.Clone()).ToList();
 
+            c.Splices.CommercialLengthMm = ReadNum(_spLc, "longitud comercial de barra", 0, errors);
+            c.Splices.FcKgCm2 = ReadNum(_spFc, "f'c", 1, errors);
+            c.Splices.FyKgCm2 = ReadNum(_spFy, "fy", 1, errors);
+            c.Splices.ClassB = _spClass.SelectedIndex != 1;
+            c.Splices.FixedLengthMm = ReadNum(_spFixed, "longitud de empalme fija", 0, errors);
+            c.Splices.TopZone = SpliceCfg.Zones[Math.Max(0, Math.Min(1, _spTopZone.SelectedIndex))];
+            c.Splices.BottomZone = SpliceCfg.Zones[Math.Max(0, Math.Min(1, _spBotZone.SelectedIndex))];
+            if (c.Splices.CommercialLengthMm > 0 && c.Splices.FixedLengthMm > 0 && c.Splices.FixedLengthMm >= c.Splices.CommercialLengthMm)
+            { errors.Add("empalmes: la longitud de empalme fija tiene que ser menor que la longitud comercial"); _spFixed.BorderBrush = RevitTheme.Error; }
+
             c.Stirrups.BarTypeName = TypeOf(_stType);
             c.Stirrups.HookTypeName = HookOf(_stHook);
             c.Stirrups.HookOrientation = _stOrient.SelectedIndex == 1 ? "right" : "left";
@@ -928,6 +983,32 @@ namespace FootingRebar
             }
             tb.ClearValue(Control.BorderBrushProperty);
             return v;
+        }
+
+        /// <summary>Texto con la longitud de empalme de cada tipo de barra en uso con la configuracion dada.</summary>
+        private string SpliceInfo(AppConfig c)
+        {
+            SpliceCfg sc = c.Splices;
+            if (!sc.Enabled) return "Sin empalmes: las barras corridas se crean de una pieza, midan lo que midan.";
+            var names = new List<string>();
+            foreach (bool top in new[] { true, false })
+                foreach (LayerCfg l in c.Face(top).Layers) { names.Add(l.BarTypeName); names.Add(l.IntermediateOrCorner); }
+            names.Add(c.SideBars.BarTypeName);
+            foreach (HostAnalysis it in _items) names.AddRange(it.BarTypeOverrides.Values);
+            var parts = new List<string>();
+            foreach (string n in names.Where(x => !string.IsNullOrEmpty(x)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => DiameterFt(x)))
+            {
+                double dbMm = DiameterFt(n) * BeamSection.MmPerFt;
+                if (dbMm <= 0) continue;
+                parts.Add(n + ": " + Num(SpliceLayout.LapLengthMm(sc, dbMm, false)) + " / " + Num(SpliceLayout.LapLengthMm(sc, dbMm, true)) + " mm");
+            }
+            string basis = sc.FixedLengthMm > 0
+                ? "longitud fija de " + Num(sc.FixedLengthMm) + " mm"
+                : "ACI 318-19 clase " + (sc.ClassB ? "B, 1.3 ld" : "A, 1.0 ld") + ", f'c " + Num(sc.FcKgCm2) + " y fy " + Num(sc.FyKgCm2) + " kg/cm2, minimo 300 mm";
+            return "Las barras corridas de mas de " + Num(sc.CommercialLengthMm) + " mm se empalman. Longitud de empalme (" + basis +
+                   ") barra baja / barra alta (mas de 300 mm de hormigon fresco debajo)" + (parts.Count > 0 ? ": " + string.Join(", ", parts) : "") +
+                   ". Las superiores se empalman " + SpliceCfg.ZoneLabels[SpliceCfg.ZoneIndex(sc.TopZone)].ToLowerInvariant() +
+                   " y las inferiores " + SpliceCfg.ZoneLabels[SpliceCfg.ZoneIndex(sc.BottomZone)].ToLowerInvariant() + ".";
         }
 
         /// <summary>Tipos de barra que faltan (obligatorios segun lo activado).</summary>
@@ -980,6 +1061,7 @@ namespace FootingRebar
             // sin tipo elegido, se dibuja con un diametro orientativo para poder ver el esquema
             double dsDraw = ds > 0 ? ds : BeamSection.Mm(9.5), dbFallback = BeamSection.Mm(16);
             bool anyMissing = MissingTypes(scratch).Count > 0;
+            _spliceInfo.Text = SpliceInfo(scratch);
 
             // estado de cada viga con esta configuracion
             int ok = 0;
@@ -1050,8 +1132,10 @@ namespace FootingRebar
                 runs = RebarGenerator.RunsFor(item, cfg, out string warn);
                 bastones = RebarGenerator.BastonRanges(item.Section, cfg, out List<string> berr);
                 int n = runs.Sum(r => r.Count);
+                string splices = RebarGenerator.DescribeSplices(item.Section, cfg, plan, out List<string> spliceWarnings);
                 text = item.Section.Describe() + "; " + plan.Describe() + " (" + plan.DescribeLayers() + "); " + n + " estribos" +
-                       (warn != null ? " (" + warn + ")" : "");
+                       (warn != null ? " (" + warn + ")" : "") + (splices != null ? "; " + splices : "") +
+                       (spliceWarnings.Count > 0 ? " (" + string.Join(" | ", spliceWarnings) + ")" : "");
                 if (berr.Count > 0) { text += " -> SIN ARMAR: " + string.Join(" | ", berr); return false; }
                 return n > 0;
             }

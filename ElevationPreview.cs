@@ -124,6 +124,9 @@ namespace FootingRebar
             {
                 double endCover = _cfg.Longitudinal.EndCoverMm / FtToMm;
                 double tol = _cfg.PrismCheckToleranceMm / FtToMm;
+                // etiquetas de empalme ya puestas (cara + posicion + longitud) y cuantas lleva cada cara, para escalonarlas
+                var spliceLabels = new HashSet<string>();
+                var spliceRows = new Dictionary<string, int>();
                 foreach ((PlanBar first, int count, double step) in _plan.ArrayRows(tol))
                 {
                     Brush brush = SectionPreview.BrushOf(first);
@@ -143,15 +146,36 @@ namespace FootingRebar
                     else
                     {
                         double w0 = ext0 > 0 ? -ext0 : endCover, w1 = ext1 > 0 ? L + ext1 : L - endCover;
-                        var path = BarPaths.Path(prof, first.Top, first.FaceOffset, w0, w1, inset, tol, null, first.Label);
-                        DrawPath(path, X, Y, brush, thick, L, first.Label + ": " + count + " x " + first.TypeName);
+                        var full = BarPaths.Path(prof, first.Top, first.FaceOffset, w0, w1, inset, tol, null, first.Label);
+                        // empalmes por longitud comercial: cada trozo con su bayoneta, como los crea el generador
+                        SplicedBar spl = RebarGenerator.SpliceFor(_s, _cfg, first, w0, w1, tol);
+                        List<List<(double w, double v)>> pieces = RebarGenerator.PiecePaths(full, spl, first, _plan.Web.CV, tol);
+                        string tip = first.Label + ": " + count + " x " + first.TypeName +
+                                     (spl.Spliced ? " (" + pieces.Count + " trozos empalmados " + Mm(spl.Lap) + " mm)" : "");
+                        foreach (var piece in pieces) DrawPath(piece, X, Y, brush, thick, L, tip);
+                        var path = pieces[0];
+                        var last = pieces[pieces.Count - 1];
                         double dir = first.Top ? -1 : 1;
                         if (leg > 0 && _cfg.Longitudinal.LegAtStart)
                             Children.Add(new Line { X1 = X(path[0].w), Y1 = Y(path[0].v), X2 = X(path[0].w), Y2 = Y(path[0].v + dir * leg), Stroke = brush, StrokeThickness = thick });
                         if (leg > 0 && _cfg.Longitudinal.LegAtEnd)
                         {
-                            var e = path[path.Count - 1];
+                            var e = last[last.Count - 1];
                             Children.Add(new Line { X1 = X(e.w), Y1 = Y(e.v), X2 = X(e.w), Y2 = Y(e.v + dir * leg), Stroke = brush, StrokeThickness = thick });
+                        }
+                        string faceKey = first.IsSide ? "L" : first.Top ? "S" : "I";
+                        foreach (double cw in spl.Centers)
+                        {
+                            string key = faceKey + "|" + Math.Round(cw * 10) + "|" + Mm(spl.Lap);
+                            if (!spliceLabels.Add(key)) continue;
+                            spliceRows.TryGetValue(faceKey, out int row);
+                            spliceRows[faceKey] = row + 1;
+                            Rect rc = prof.WebAt(cw);
+                            double y = first.IsSide ? Y(BarPaths.VAt(full, cw)) - 14 - row * 11 : first.Top ? Y(rc.V2) - 28 - row * 11 : Y(rc.V1) + 14 + row * 11;
+                            var t = Text("empalme " + Mm(spl.Lap), X(cw) - 28, y, brush, 9, true);
+                            t.ToolTip = first.Label + ": empalme por traslape de " + Mm(spl.Lap) + " mm centrado en w=" + Mm(cw) + " mm (" +
+                                        Mm(cw - 0.5 * spl.Lap) + " a " + Mm(cw + 0.5 * spl.Lap) + ")";
+                            Children.Add(new Line { X1 = X(cw - 0.5 * spl.Lap), Y1 = y + 12, X2 = X(cw + 0.5 * spl.Lap), Y2 = y + 12, Stroke = brush, StrokeThickness = 1 });
                         }
                     }
                 }

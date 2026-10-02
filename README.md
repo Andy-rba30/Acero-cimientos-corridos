@@ -61,6 +61,26 @@ verticales del alzado marcan las esquinas.
   cimiento al siguiente), con las fibras extremas tomadas según la dirección de cada
   trozo de barra. Si algo queda fuera del hormigón se deshace el recorrido entero.
 
+## Empalmes por longitud comercial (`SpliceLayout`)
+
+Como en el add-in de vigas, las barras corridas más largas que la **longitud comercial**
+(9 m por defecto; 0 = sin empalmes) se parten en trozos solapados la **longitud de
+empalme a tracción** de ACI 318-19 (`ld` de 25.4.2.3 con el factor 1.3 de barra alta,
+clase B = 1.3 ld o clase A, mínimo 300 mm, o una longitud fija; `f'c` y `fy` en kg/cm²),
+con el segundo trozo pegado por dentro y una bayoneta 1:6 para volver a la línea. Los
+bastones no se empalman.
+
+Lo propio del recorrido: aquí el "vano" es cada **tramo de la cadena** (cada elemento
+entre columnas o esquinas, con su cota `w`), así que la zona de empalme se calcula tramo
+a tramo: superiores en el tercio central de cada tramo e inferiores en sus cuartos
+extremos fuera de `2h` de la cara del apoyo (ambas configurables; las laterales en el
+tercio central). Los empalmes justos se reparten lo más uniformemente posible a lo largo
+de la barra y cada uno se lleva a la zona permitida más cercana; si así no caben con la
+barra comercial se reparten por igual y la fila del recorrido lo avisa. Los trozos
+doblan en las esquinas igual que la barra entera (cada trozo es su propio `Rebar`), y
+en el alzado desarrollado se ven con su etiqueta `empalme 1100`. La longitud de empalme
+de cada tipo de barra en uso se muestra en la ventana, bajo los campos de empalme.
+
 Todo lo demás (capas por cara con dos diámetros, capa intermedia de laterales, bastones
 apilados o entre las corridas, selección especial de barras en la sección, ganchos con
 inversión automática, distribución `1@50, 8@100, R@200` desde cada extremo, partición,
@@ -68,8 +88,9 @@ inversión automática, distribución `1@50, 8@100, R@200` desde cada extremo, p
 
 ## config.json
 
-Mismas claves que el add-in de vigas; por defecto `"distribution": "R@200"` y
-`"partitionTemplate": "CC-{marca}"`.
+Mismas claves que el add-in de vigas (bloque `splices` incluido: `commercialLengthMm`,
+`fcKgCm2`, `fyKgCm2`, `classB`, `fixedLengthMm`, `topZone`, `bottomZone`); por defecto
+`"distribution": "R@200"` y `"partitionTemplate": "CC-{marca}"`.
 
 ## Compilar e instalar
 
@@ -93,6 +114,7 @@ comando también en Complementos > Herramientas externas.
 | `BeamSection.cs` | Lectura del sólido (eje de cimentación de muro o curva de ubicación, eje invertible), sección sintética de un recorrido. |
 | `BeamProfile.cs` | Perfil por tramos y `Concat` de los perfiles de una cadena. Pura. |
 | `BeamPlan.cs`, `StirrupLayout.cs`, `Rectilinear.cs` | Armado de la sección, distribución de estribos, geometría pura (iguales que en vigas). |
+| `SpliceLayout.cs` | Empalmes por traslape: longitud de empalme (ACI 318-19) por diámetro y reparto de los trozos con cada empalme en la zona de un tramo del recorrido. Pura. |
 | `HostAnalysis.cs` | Resultado por elemento y agrupación en recorridos (`Chained`). |
 | `RebarGenerator.cs` | Crea los `Rebar` tramo a tramo y a lo largo del recorrido, con las redes de seguridad contra la unión de sólidos. |
 | `RebarOptionsWindow.cs`, `SectionPreview.cs`, `ElevationPreview.cs`, `BastonPreview.cs`, `RevitTheme.cs` | Ventana y esquemas. |

@@ -550,6 +550,55 @@ namespace FootingRebar
             return list;
         }
 
+        /// <summary>Cota v de la trayectoria en w (interpolando entre sus puntos; fuera de ella, la del extremo).</summary>
+        public static double VAt(List<(double w, double v)> path, double w)
+        {
+            if (path == null || path.Count == 0) return 0;
+            if (w <= path[0].w) return path[0].v;
+            for (int i = 0; i + 1 < path.Count; i++)
+            {
+                var a = path[i]; var b = path[i + 1];
+                if (w <= b.w)
+                {
+                    double span = b.w - a.w;
+                    return span <= 1e-12 ? b.v : a.v + (b.v - a.v) * (w - a.w) / span;
+                }
+            }
+            return path[path.Count - 1].v;
+        }
+
+        /// <summary>Trozo de la trayectoria entre wa y wb (un trozo de barra empalmada), con puntos interpolados en los cortes.</summary>
+        public static List<(double w, double v)> Clip(List<(double w, double v)> path, double wa, double wb, double tol)
+        {
+            var pts = new List<(double w, double v)> { (wa, VAt(path, wa)) };
+            foreach (var p in path)
+                if (p.w > wa + tol && p.w < wb - tol) pts.Add(p);
+            pts.Add((wb, VAt(path, wb)));
+            return Clean(pts, tol);
+        }
+
+        /// <summary>
+        /// Bayoneta del empalme: la trayectoria va desplazada "dv" en v desde su inicio hasta
+        /// wEnd (donde acaba el solape, pegada a la barra con la que empalma) y vuelve a su
+        /// linea en wEnd + jog.
+        /// </summary>
+        public static List<(double w, double v)> Jog(List<(double w, double v)> path, double dv, double wEnd, double jog, double tol)
+        {
+            if (path == null || path.Count == 0 || Math.Abs(dv) <= tol) return path;
+            double wBack = wEnd + Math.Max(jog, tol);
+            double first = path[0].w, last = path[path.Count - 1].w;
+            var knots = path.Select(p => p.w).ToList();
+            knots.Add(wEnd);
+            knots.Add(wBack);
+            var pts = new List<(double w, double v)>();
+            foreach (double w in knots.Where(k => k >= first - tol && k <= last + tol).OrderBy(k => k))
+            {
+                double f = w <= wEnd ? 1 : w >= wBack ? 0 : (wBack - w) / (wBack - wEnd);
+                pts.Add((w, VAt(path, w) + dv * f));
+            }
+            return Clean(pts, tol);
+        }
+
         /// <summary>Longitud desarrollada de la trayectoria (pies).</summary>
         public static double Length(List<(double w, double v)> pts)
         {

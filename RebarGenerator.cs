@@ -27,7 +27,10 @@ namespace FootingRebar
         public List<string> Failed = new List<string>();
         public List<string> Warnings = new List<string>();
         public int Bars, BastonBars, StirrupSets, Stirrups;
-        public string Summary => Bars + " barras corridas" + (BastonBars > 0 ? ", " + BastonBars + " de bastones" : "") + ", " +
+        /// <summary>Empalmes por traslape creados (uno por cada barra corrida partida por la longitud comercial).</summary>
+        public int Splices;
+        public string Summary => Bars + " barras corridas" + (Splices > 0 ? " con " + Splices + " empalmes" : "") +
+                                 (BastonBars > 0 ? ", " + BastonBars + " de bastones" : "") + ", " +
                                  Stirrups + " estribos en " + StirrupSets + " conjuntos";
         public bool Safe => Rejected.Count == 0;
     }
@@ -197,6 +200,94 @@ namespace FootingRebar
         /// <summary>Lo que la bayoneta de un escalon se mete respecto al plano del escalon.</summary>
         public static double JogInset(AppConfig cfg, double ds, double db) => Mm(cfg.CoverMm) + ds + db;
 
+        /// <summary>Tramo (w0, w1) de las barras corridas: con prolongacion sobresalen de la cara; sin ella terminan en el recubrimiento del extremo.</summary>
+        public static (double w0, double w1) MainRange(BeamSection s, AppConfig cfg)
+        {
+            LongitudinalCfg L = cfg.Longitudinal;
+            return (L.StartExtensionMm > 0 ? -Mm(L.StartExtensionMm) : Mm(L.EndCoverMm),
+                    L.EndExtensionMm > 0 ? s.Length + Mm(L.EndExtensionMm) : s.Length - Mm(L.EndCoverMm));
+        }
+
+        /// <summary>Tramos del recorrido (cotas w): los elementos de la cadena entre columnas o esquinas; uno solo si no hay cadena.</summary>
+        public static List<(double w0, double w1)> Spans(BeamSection s)
+        {
+            var spans = new List<(double w0, double w1)>();
+            if (s.Chain != null && s.Chain.Segs.Count > 0)
+                foreach (ChainSeg g in s.Chain.Segs) spans.Add((g.W0, g.W1));
+            else spans.Add((0, s.Length));
+            return spans;
+        }
+
+        /// <summary>
+        /// Empalmes de una fila de barras corridas de este recorrido: longitud de empalme
+        /// segun su diametro y su posicion (ACI 318-19; factor 1.3 si tiene mas de 300 mm
+        /// de hormigon fresco debajo), trozos y centros, con cada empalme en la zona de
+        /// alguno de los tramos del recorrido. Compartido por la ventana y el generador,
+        /// para que lo que se dibuja sea lo que se crea. Las laterales se empalman en el tercio central.
+        /// </summary>
+        public static SplicedBar SpliceFor(BeamSection s, AppConfig cfg, PlanBar bar, double w0, double w1, double tol)
+        {
+            SpliceCfg sc = cfg.Splices ?? new SpliceCfg();
+            BeamProfile prof = s.Profile;
+            double below = bar.Top ? prof.MaxDepth - bar.FaceOffset : bar.FaceOffset;
+            bool topBar = below > Mm(300);
+            double lap = Mm(SpliceLayout.LapLengthMm(sc, bar.Db * BeamSection.MmPerFt, topBar));
+            bool center = bar.IsSide || sc.CenterZone(bar.Top);
+            return SpliceLayout.Plan(sc, lap, bar.Db, Spans(s), prof.MaxDepth, w0, w1, center, bar.Label, tol);
+        }
+
+        /// <summary>
+        /// Trayectoria de cada trozo de una barra empalmada: el primero sigue la linea de la
+        /// barra; cada uno de los siguientes empieza pegado por dentro al anterior (desplazado
+        /// un diametro hacia el interior de la seccion) y vuelve a la linea con una bayoneta
+        /// al acabar el solape. "midV" es la cota media del alma (hacia donde se meten las laterales).
+        /// </summary>
+        public static List<List<(double w, double v)>> PiecePaths(List<(double w, double v)> path, SplicedBar sb, PlanBar bar, double midV, double tol)
+        {
+            var list = new List<List<(double w, double v)>>();
+            if (sb == null || !sb.Spliced) { list.Add(path); return list; }
+            double dir = bar.IsSide ? (BarPaths.VAt(path, 0.5 * (path[0].w + path[path.Count - 1].w)) > midV ? -1 : 1) : bar.Top ? -1 : 1;
+            for (int k = 0; k < sb.Pieces.Count; k++)
+            {
+                (double a, double z) = sb.Pieces[k];
+                List<(double w, double v)> piece = BarPaths.Clip(path, a, z, tol);
+                if (k > 0) piece = BarPaths.Jog(piece, dir * bar.Db, sb.Centers[k - 1] + 0.5 * sb.Lap, sb.Jog, tol);
+                list.Add(piece);
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Resumen de los empalmes de las barras corridas de este recorrido ("empalmes:
+        /// superiores 1 x 1400 mm (3/4) en el tercio central; inferiores ...") y sus avisos;
+        /// null si ninguna barra necesita empalme.
+        /// </summary>
+        public static string DescribeSplices(BeamSection s, AppConfig cfg, BeamPlan plan, out List<string> warnings)
+        {
+            warnings = new List<string>();
+            if (cfg.Splices == null || !cfg.Splices.Enabled || plan == null || plan.Error != null) return null;
+            double tol = Mm(cfg.PrismCheckToleranceMm);
+            (double w0, double w1) = MainRange(s, cfg);
+            var parts = new List<string>();
+            foreach (var face in plan.Bars.Where(b => !b.IsBaston).GroupBy(b => b.IsSide ? 2 : b.Top ? 0 : 1).OrderBy(g => g.Key))
+            {
+                var laps = new List<string>();
+                foreach (PlanBar bar in face.GroupBy(b => (b.TypeName, Math.Round(b.FaceOffset / tol))).Select(g => g.First()))
+                {
+                    SplicedBar sb = SpliceFor(s, cfg, bar, w0, w1, tol);
+                    foreach (string w in sb.Warnings) if (!warnings.Contains(w)) warnings.Add(w);
+                    if (!sb.Spliced) continue;
+                    string t = sb.Centers.Count + " x " + ToMm(sb.Lap) + " mm (" + bar.TypeName + ")";
+                    if (!laps.Contains(t)) laps.Add(t);
+                }
+                if (laps.Count == 0) continue;
+                bool center = face.Key == 2 || cfg.Splices.CenterZone(face.Key == 0);
+                parts.Add((face.Key == 0 ? "superiores " : face.Key == 1 ? "inferiores " : "laterales ") + string.Join(" + ", laps) +
+                          (center ? " en el tercio central de los tramos" : " cerca de los apoyos de los tramos"));
+            }
+            return parts.Count == 0 ? null : "empalmes: " + string.Join("; ", parts);
+        }
+
         // -----------------------------------------------------------------
         // Longitudinales: cada fila equiespaciada = un conjunto con array a lo largo de u
         // -----------------------------------------------------------------
@@ -228,11 +319,20 @@ namespace FootingRebar
                 foreach ((double w0, double w1, string label, bool legStart, bool legEnd, string face) in ranges)
                 {
                     if (w1 - w0 < MinSeg) { c.Result.Rejected.Add(first.Label + ": sin longitud"); return; }
-                    string name = first.Label + (label.Length > 0 ? " " + label : "") +
-                                  (count > 1 ? " (" + count + " barras cada " + ToMm(step) + " mm)" : "") + " u=" + ToMm(first.U);
-                    List<(double w, double v)> path = BarPaths.Path(s.Profile, first.Top, first.FaceOffset, w0, w1,
+                    List<(double w, double v)> full = BarPaths.Path(s.Profile, first.Top, first.FaceOffset, w0, w1,
                                                                     JogInset(c.Cfg, c.Plan.Ds, db), c.Tol, c.Result.Warnings, first.Label);
-                    // patilla en el inicio: las superiores bajan, las inferiores suben
+                    // empalmes por longitud comercial: las corridas mas largas se parten en trozos solapados
+                    SplicedBar sb = first.IsBaston ? null : SpliceFor(s, c.Cfg, first, w0, w1, c.Tol);
+                    if (sb != null)
+                        foreach (string w in sb.Warnings) if (!c.Result.Warnings.Contains(w)) c.Result.Warnings.Add(w);
+                    if (first.IsBaston && c.Cfg.Splices != null && c.Cfg.Splices.Enabled && w1 - w0 > Mm(c.Cfg.Splices.CommercialLengthMm) + c.Tol)
+                    {
+                        string w = first.Label + " " + label + ": mide " + ToMm(w1 - w0) + " mm, mas que la barra comercial (" +
+                                   c.Cfg.Splices.CommercialLengthMm.ToString("0") + " mm); los bastones no se empalman";
+                        if (!c.Result.Warnings.Contains(w)) c.Result.Warnings.Add(w);
+                    }
+                    List<List<(double w, double v)>> pieces = PiecePaths(full, sb, first, c.Plan.Web.CV, c.Tol);
+                    // patilla en el inicio: las superiores bajan, las inferiores suben (solo en el primer y ultimo trozo)
                     double legDir = first.Top ? -1 : 1;
                     bool corners = s.Chain != null && s.Chain.HasCorners;
                     // en un recorrido con esquinas cada barra dobla en planta: es plana solo en horizontal, asi que
@@ -245,26 +345,34 @@ namespace FootingRebar
                     }
                     if (corners) { useLegStart = false; useLegEnd = false; }
                     int singles = corners ? count : 1;
-                    for (int kbar = 0; kbar < singles; kbar++)
+                    for (int k = 0; k < pieces.Count; k++)
                     {
-                        double u = first.U + kbar * step;
-                        var curves = new List<Curve>();
-                        List<XYZ> pts = corners ? s.Chain.Polyline(u, path)
-                            : path.Select(q => s.World(u, q.v, q.w)).ToList();
-                        if (useLegStart) AddLine(curves, s.World(u, path[0].v + legDir * leg, path[0].w), pts[0]);
-                        for (int i = 0; i + 1 < pts.Count; i++) AddLine(curves, pts[i], pts[i + 1]);
-                        if (useLegEnd)
+                        List<(double w, double v)> path = pieces[k];
+                        string name = first.Label + (label.Length > 0 ? " " + label : "") +
+                                      (pieces.Count > 1 ? " tramo " + (k + 1) + "/" + pieces.Count : "") +
+                                      (count > 1 ? " (" + count + " barras cada " + ToMm(step) + " mm)" : "") + " u=" + ToMm(first.U);
+                        for (int kbar = 0; kbar < singles; kbar++)
                         {
-                            var e = path[path.Count - 1];
-                            AddLine(curves, pts[pts.Count - 1], s.World(u, e.v + legDir * leg, e.w));
+                            double u = first.U + kbar * step;
+                            var curves = new List<Curve>();
+                            List<XYZ> pts = corners ? s.Chain.Polyline(u, path)
+                                : path.Select(q => s.World(u, q.v, q.w)).ToList();
+                            if (useLegStart && k == 0) AddLine(curves, s.World(u, path[0].v + legDir * leg, path[0].w), pts[0]);
+                            for (int i = 0; i + 1 < pts.Count; i++) AddLine(curves, pts[i], pts[i + 1]);
+                            if (useLegEnd && k == pieces.Count - 1)
+                            {
+                                var e = path[path.Count - 1];
+                                AddLine(curves, pts[pts.Count - 1], s.World(u, e.v + legDir * leg, e.w));
+                            }
+                            if (curves.Count == 0) { c.Result.Rejected.Add(name + ": sin geometria"); return; }
+                            XYZ normal = corners ? XYZ.BasisZ : s.DirU;
+                            bool ok = Place(c, name + (corners && count > 1 ? " barra " + (kbar + 1) : ""), bt, RebarStyle.Standard, ElementId.InvalidElementId, true,
+                                            normal, curves, corners ? 1 : count, step, longitudinal: true, face: face, host: s.Host);
+                            if (!ok) return;
                         }
-                        if (curves.Count == 0) { c.Result.Rejected.Add(name + ": sin geometria"); return; }
-                        XYZ normal = corners ? XYZ.BasisZ : s.DirU;
-                        bool ok = Place(c, name + (corners && count > 1 ? " barra " + (kbar + 1) : ""), bt, RebarStyle.Standard, ElementId.InvalidElementId, true,
-                                        normal, curves, corners ? 1 : count, step, longitudinal: true, face: face, host: s.Host);
-                        if (!ok) return;
+                        if (first.IsBaston) c.Result.BastonBars += count; else c.Result.Bars += count;
                     }
-                    if (first.IsBaston) c.Result.BastonBars += count; else c.Result.Bars += count;
+                    if (sb != null && sb.Spliced) c.Result.Splices += count * sb.Centers.Count;
                 }
             }
         }
