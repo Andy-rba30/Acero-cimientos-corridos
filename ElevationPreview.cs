@@ -7,7 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>
     /// Esquema del alzado: el perfil del alma a lo largo de la viga (tramos constantes,

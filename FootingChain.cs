@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>Un tramo recto de una cadena de cimientos: el elemento, su seccion y donde empieza en el recorrido.</summary>
     public sealed class ChainSeg

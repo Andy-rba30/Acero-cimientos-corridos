@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>
     /// Geometria de una viga deducida del solido real del elemento: se toma el eje (la

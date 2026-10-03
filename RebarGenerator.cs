@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Arba.Comun;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>Un conjunto (elemento Rebar) creado para una viga.</summary>
     public sealed class CreatedSet
@@ -73,6 +74,8 @@ namespace FootingRebar
             /// <summary>Lo que mas se han prolongado las barras en el inicio / en el fin al anclarse (pies).</summary>
             public double AnchoredStart, AnchoredEnd;
             public bool WarnedSplit;
+            /// <summary>Ya se ha avisado de que la Particion / ARBA - Origen no se pudieron escribir (una vez por elemento).</summary>
+            public bool WarnedPartition, WarnedOrigin;
         }
 
         // =================================================================
@@ -873,7 +876,7 @@ namespace FootingRebar
                     }
                 }
 
-                Finish(c.Doc, rb, c.Item.Partition(c.Cfg, SetName(name), face));
+                Finish(c, rb, host, face, c.Item.Partition(c.Cfg, SetName(name), face, host));
                 c.Result.Created.Add(new CreatedSet { Id = rb.Id, Name = name, Radius = r, Longitudinal = longitudinal });
                 return true;
             }
@@ -1053,11 +1056,25 @@ namespace FootingRebar
             }
         }
 
-        private static void Finish(Document doc, Rebar r, string partition)
+        /// <summary>
+        /// Marca un conjunto recien creado segun el contrato ARBA-comun: Particion (parametro
+        /// predefinido, tambien en Revit en espanol), ARBA - Origen = CIMIENTOS CORRIDOS,
+        /// ARBA - Codigo = cara (superior / inferior / estribo) y Metrado - Elemento = categoria
+        /// del anfitrion real. Si algo no se puede escribir, se avisa una vez en el resumen.
+        /// </summary>
+        private static void Finish(Ctx c, Rebar r, Element host, string face, string partition)
         {
-            Parameter p = r.LookupParameter("Partition");
-            if (p != null && !p.IsReadOnly && !string.IsNullOrEmpty(partition)) p.Set(partition);
-            try { r.SetUnobscuredInView(doc.ActiveView, true); } catch { }
+            if (!ArbaPartition.Write(r, partition) && !c.WarnedPartition)
+            {
+                c.WarnedPartition = true;
+                c.Result.Warnings.Add("no se pudo escribir la Particion \"" + partition + "\" (parametro no disponible en el conjunto)");
+            }
+            if (!ArbaOrigin.WriteFor(r, host, ArbaContract.CimientosCorridos, face) && !c.WarnedOrigin)
+            {
+                c.WarnedOrigin = true;
+                c.Result.Warnings.Add("no se pudo escribir " + ArbaContract.Origen.Name + " (parametro compartido del contrato ARBA sin vincular a las armaduras)");
+            }
+            try { r.SetUnobscuredInView(c.Doc.ActiveView, true); } catch { }
         }
 
         public static RebarBarType FindBarType(Document doc, string name, string use)
@@ -1065,9 +1082,13 @@ namespace FootingRebar
             var all = AllBarTypes(doc);
             if (all.Count == 0)
                 throw new InvalidOperationException("El proyecto no tiene ningun tipo de barra (RebarBarType). Carga una familia de armadura primero.");
-            string match = MatchName(all.Select(b => b.Name), name);
+            List<string> names = all.Select(b => b.Name).ToList();
+            string match = NameMatch.Unique(names, name);
             if (match == null)
-                throw new InvalidOperationException("el tipo de barra de " + use + " \"" + name + "\" no existe en este proyecto; elige uno de los cargados en la ventana");
+                throw new InvalidOperationException(NameMatch.IsAmbiguous(names, name)
+                    ? "el tipo de barra de " + use + " \"" + name + "\" es ambiguo, coincide con varios tipos del proyecto (" +
+                      string.Join(", ", NameMatch.Candidates(names, name)) + "); elige uno en la ventana"
+                    : "el tipo de barra de " + use + " \"" + name + "\" no existe en este proyecto; elige uno de los cargados en la ventana");
             return all.First(b => b.Name == match);
         }
 
@@ -1076,23 +1097,14 @@ namespace FootingRebar
         {
             if (string.IsNullOrWhiteSpace(name)) return ElementId.InvalidElementId;
             var all = AllHookTypes(doc);
-            string match = MatchName(all.Select(h => h.Name), name);
+            List<string> names = all.Select(h => h.Name).ToList();
+            string match = NameMatch.Unique(names, name);
             if (match == null)
-                throw new InvalidOperationException("el tipo de gancho \"" + name + "\" no existe en este proyecto; elige uno de los cargados en la ventana o deja el gancho vacio");
+                throw new InvalidOperationException(NameMatch.IsAmbiguous(names, name)
+                    ? "el tipo de gancho \"" + name + "\" es ambiguo, coincide con varios tipos del proyecto (" +
+                      string.Join(", ", NameMatch.Candidates(names, name)) + "); elige uno en la ventana"
+                    : "el tipo de gancho \"" + name + "\" no existe en este proyecto; elige uno de los cargados en la ventana o deja el gancho vacio");
             return all.First(h => h.Name == match).Id;
-        }
-
-        /// <summary>
-        /// Nombre que corresponde a "name": coincidencia exacta, si no parcial (sin distinguir
-        /// mayusculas); null si no hay ninguna. Nunca se sustituye por otro: sin coincidencia no se arma.
-        /// </summary>
-        public static string MatchName(IEnumerable<string> names, string name)
-        {
-            if (string.IsNullOrWhiteSpace(name)) return null;
-            var list = names.ToList();
-            string exact = list.FirstOrDefault(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
-            if (exact != null) return exact;
-            return list.FirstOrDefault(n => n.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         public static List<RebarBarType> AllBarTypes(Document doc) =>

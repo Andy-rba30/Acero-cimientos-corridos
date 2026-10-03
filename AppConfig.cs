@@ -6,7 +6,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>
     /// Una capa de barras longitudinales de una cara (superior o inferior). La capa 1 es
@@ -223,11 +223,16 @@ namespace FootingRebar
         public string JoinedGeometry { get; set; } = "auto";
 
         /// <summary>
-        /// Plantilla del parametro Particion de cada barra. Comodines: {marca} (Marca del
-        /// elemento; si esta vacia se usa el Id), {id}, {tipo}, {familia}, {conjunto}
-        /// (nombre del juego de barras) y {cara} (superior / inferior / estribo).
+        /// Plantilla del parametro Particion de cada barra (contrato ARBA-comun): tiene que empezar
+        /// por "{categoria} - {prefijo}-". {categoria} es la del anfitrion real (CIMIENTOS, MUROS,
+        /// LOSAS, VIGAS...), {prefijo} el del add-in (CCO), {marca} la Marca del anfitrion (si esta
+        /// vacia, su Id). Otros comodines: {id}, {codigo} / {cara} (superior / inferior / estribo),
+        /// {tipo}, {familia} y {conjunto} (nombre del juego de barras).
         /// </summary>
-        public string PartitionTemplate { get; set; } = "CC-{marca}";
+        public string PartitionTemplate { get; set; } = DefaultPartitionTemplate;
+
+        /// <summary>Plantilla por defecto: una particion por elemento; el detalle (cara) queda en "ARBA - Codigo".</summary>
+        public const string DefaultPartitionTemplate = "{categoria} - {prefijo}-{marca}";
 
         /// <summary>Espesor de las rebanadas de sondeo geometrico (mm).</summary>
         public double ProbeSliceMm { get; set; } = 10;
@@ -325,7 +330,7 @@ namespace FootingRebar
             if (PrismCheckStepMm <= 0) PrismCheckStepMm = 250;
             if (PrismCheckToleranceMm <= 0) PrismCheckToleranceMm = 2;
             if (RectilinearAngleDeg <= 0) RectilinearAngleDeg = 0.5;
-            if (string.IsNullOrWhiteSpace(PartitionTemplate)) PartitionTemplate = "CC-{marca}";
+            if (string.IsNullOrWhiteSpace(PartitionTemplate)) PartitionTemplate = DefaultPartitionTemplate;
         }
 
         public static string ConfigPath()

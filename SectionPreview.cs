@@ -8,7 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>
     /// Esquema de la seccion de la viga con su armado: hormigon (la seccion de referencia,

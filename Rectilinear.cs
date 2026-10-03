@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>Punto 2D en coordenadas locales de la seccion (u, v), en pies.</summary>
     public struct Pt

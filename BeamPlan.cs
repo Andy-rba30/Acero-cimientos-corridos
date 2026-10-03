@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     public enum BarKind { Corner, Intermediate, Baston, Side }
 

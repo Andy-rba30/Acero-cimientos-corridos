@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>Un grupo de la distribucion de estribos: "8@100" (8 estribos cada 100 mm) o "R@200" (el resto cada 200 mm).</summary>
     public sealed class StirrupGroup

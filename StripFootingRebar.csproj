@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- Revit 2027 corre sobre .NET 10. Para 2025/2026 seria net8.0-windows y el paquete 2025.* / 2026.*. -->
+    <!-- Revit 2027 corre sobre .NET 10. Para 2025/2026 seria net8.0-windows y el paquete 2025.* / 2026.* (y RevitVersion 2026). -->
     <TargetFramework>net10.0-windows</TargetFramework>
     <LangVersion>latest</LangVersion>
     <PlatformTarget>x64</PlatformTarget>
@@ -12,7 +12,18 @@
     <RootNamespace>StripFootingRebar</RootNamespace>
     <!-- Revit ya carga sus propias DLL: no copiarlas al output -->
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <!-- Permite compilar (y comprobar) fuera de Windows; el add-in sigue siendo solo para Windows + Revit -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- El submodulo no entra por el comodin por defecto: Arba.Comun.props compila solo external/ARBA-comun/src -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);external/**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <!-- ARBA-comun (submodulo external/ARBA-comun, etiqueta v1.0.0): contrato, particion, parametros compartidos,
+       cinta y tema compilados DENTRO de este ensamblado (namespace Arba.Comun, clases internal). -->
+  <PropertyGroup>
+    <RevitVersion>2027</RevitVersion>
+  </PropertyGroup>
+  <Import Project="external/ARBA-comun/Arba.Comun.props" />
 
   <ItemGroup>
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" ExcludeAssets="runtime" />
@@ -25,8 +36,8 @@
     </None>
   </ItemGroup>
 
-  <!-- Copia automatica al directorio de add-ins de Revit al compilar en Debug -->
-  <Target Name="CopyToRevit" AfterTargets="Build" Condition="'$(Configuration)'=='Debug'">
+  <!-- Copia automatica al directorio de add-ins de Revit al compilar en Debug (solo en Windows) -->
+  <Target Name="CopyToRevit" AfterTargets="Build" Condition="'$(Configuration)'=='Debug' And '$(OS)'=='Windows_NT'">
     <PropertyGroup>
       <AddinDir>$(AppData)\Autodesk\Revit\Addins\2027\StripFootingRebar\</AddinDir>
     </PropertyGroup>

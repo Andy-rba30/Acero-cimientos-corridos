@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>
     /// Una barra corrida partida en trozos empalmados por traslape porque es mas larga que

@@ -7,8 +7,13 @@ estribos van tramo a tramo. La lectura de la geometría, la sección (capas, bas
 laterales, estribo) y la ventana son las mismas que en el add-in de vigas
 ([Acero-vigas](https://github.com/Andy-rba30/Acero-vigas)); lo nuevo es el recorrido.
 
-Comparte la pestaña **ARBA** y el desplegable **Acero** con los add-ins de columnas,
-vigas y muros de contención.
+Comparte la pestaña **ARBA** y el desplegable **Acero** con los demás add-ins ARBA, y
+sigue el **contrato [ARBA-comun](https://github.com/Andy-rba30/ARBA-comun)** (v1.0.0,
+submódulo `external/ARBA-comun`): partición `CATEGORIA - CCO-marca`, parámetros compartidos
+`ARBA - Origen` / `ARBA - Código` / `Metrado - Elemento`, borrar y rearmar sin duplicados y
+migración de modelos con barras antiguas (ver [más abajo](#contrato-arba-comun-partición-origen-borrar-y-rearmar-migración)).
+El ensamblado es `StripFootingRebar` y el namespace también `StripFootingRebar` (antes
+`FootingRebar`, que chocaba con el add-in de zapatas).
 
 ## Qué elementos admite
 
@@ -166,21 +171,79 @@ inversión automática, distribución `1@50, 8@100, R@200` desde cada extremo, p
 Mismas claves que el add-in de vigas (bloque `splices` incluido: `commercialLengthMm`,
 `fcKgCm2`, `fyKgCm2`, `classB`, `fixedLengthMm`, `topZone`, `bottomZone`), más
 `longitudinal.anchorInAdjacent` (anclar los extremos en el cimiento contiguo, `true` por
-defecto); por defecto `"distribution": "R@200"` y `"partitionTemplate": "CC-{marca}"`.
+defecto); por defecto `"distribution": "R@200"` y
+`"partitionTemplate": "{categoria} - {prefijo}-{marca}"` (la plantilla del contrato, ver la
+sección siguiente; una plantilla que no empiece por `{categoria} - {prefijo}-` se arma igual
+pero la ventana lo avisa).
+
+## Contrato ARBA-comun: partición, origen, borrar y rearmar, migración
+
+El código común se compila dentro de `StripFootingRebar.dll` desde el submódulo
+`external/ARBA-comun` (`Arba.Comun.props`, etiqueta `v1.0.0`; no se modifica desde este
+repo). Lo que aporta a este add-in:
+
+**Partición de cada conjunto.** `{categoria} - {prefijo}-{marca}`: la categoría es la del
+**anfitrión real** (es como agrupa el plugin de metrados), el prefijo `CCO` dice que lo armó
+este add-in y la marca es el parámetro Marca del anfitrión (si está vacía, su Id). La cara no
+va en la partición (una partición por elemento) sino en `ARBA - Código`:
+
+| Anfitrión | Partición | `Metrado - Elemento` |
+|-----------|-----------|----------------------|
+| Cimentación estructural (cimiento corrido) marca `C1` | `CIMIENTOS - CCO-C1` | `CIMIENTOS` |
+| Muro estructural (sobrecimiento) marca `SC1` | `MUROS - CCO-SC1` | `MUROS` |
+| Suelo estructural marca `L1` (o sin marca, Id 123456) | `LOSAS - CCO-L1` (`LOSAS - CCO-123456`) | `LOSAS` |
+| Viga de cimentación (armazón estructural) marca `VC1` | `VIGAS - CCO-VC1` | `VIGAS` |
+
+En un recorrido con varios tramos cada barra toma la categoría y la marca del tramo en el que
+Revit la crea (las corridas que cruzan tramos, en el primero). La partición se escribe en el
+parámetro predefinido de Revit (`NUMBER_PARTITION_PARAM`), así que también funciona en Revit
+en español (antes se buscaba `"Partition"` por nombre y no se escribía nada). Además de la
+partición, cada conjunto lleva `ARBA - Origen = CIMIENTOS CORRIDOS`, `ARBA - Código =`
+`superior` / `inferior` / `estribo` y `Metrado - Elemento` con la categoría. Los tres
+parámetros compartidos (GUID fijos del contrato) se vinculan solos al armar
+(`ArbaSharedParams.Ensure`, grupo *Datos*), sin tocar el archivo de parámetros compartidos del
+usuario.
+
+**Borrar y rearmar.** Antes de armar, el comando busca en cada anfitrión los conjuntos con
+`ARBA - Origen = CIMIENTOS CORRIDOS` y las barras **anteriores al contrato** (partición
+`CC-…` sin origen). Si hay algo, pregunta una vez:
+
+- *Borrar la armadura del add-in y rearmar*: en cada anfitrión se migran primero las barras
+  antiguas (para reconocerlas como propias), se borran los conjuntos del add-in y se arma de
+  nuevo, todo dentro de la subtransacción del elemento: si el elemento no se puede armar, su
+  armadura anterior se conserva. Sin duplicados.
+- *Conservar lo que hay y armar encima*: no toca nada (queda duplicado).
+- *Migrar las barras antiguas sin rearmar* (solo si las hay): reescribe la partición
+  (`CC-C1` → `CIMIENTOS - CCO-C1`, o `MUROS - CCO-C1` si el anfitrión es un muro), rellena
+  `ARBA - Origen`, `ARBA - Código` y `Metrado - Elemento` y no crea ninguna barra. El botón
+  **Migrar particiones y origen** del plugin de metrados hace lo mismo para todo el modelo.
+
+Las barras de otros add-ins (`ZAP-…`, `BLQ-…`) en el mismo anfitrión no se tocan nunca. El
+informe final y el pie de la ventana muestran la versión del contrato con la que se compiló.
 
 ## Compilar e instalar
 
 Requiere el SDK de .NET 10 y Revit 2027 (para 2025/2026 cambia el `TargetFramework` a
-`net8.0-windows` y la versión de los paquetes `Nice3point.Revit.Api.*`).
+`net8.0-windows`, la versión de los paquetes `Nice3point.Revit.Api.*` y `RevitVersion`).
+El código común viene en un **submódulo**, así que al clonar:
 
 ```
+git clone --recurse-submodules https://github.com/Andy-rba30/Acero-cimientos-corridos
+# o, en un clon ya hecho:
+git submodule update --init
 dotnet build -c Debug
 ```
 
+Para subir de versión el común: `git -C external/ARBA-comun checkout vX.Y.Z` y commit del
+puntero. El proyecto compila también fuera de Windows (`EnableWindowsTargeting`) para
+comprobar la compilación; la copia a la carpeta de add-ins solo se hace en Windows.
+
 En Debug la compilación copia `StripFootingRebar.dll`, `config.json` y
 `StripFootingRebar.addin` a `%AppData%\Autodesk\Revit\Addins\2027\`. Al abrir Revit
-aparece el botón **Cimientos/Sobrecimientos** en el desplegable **Acero** de la pestaña
-**ARBA** y el comando también en Complementos > Herramientas externas.
+aparece el botón **Cimientos/Sobrecimientos** (nombre interno `ARBA_Acero_Cimientos`) en el
+desplegable **Acero** de la pestaña **ARBA** y el comando también en Complementos >
+Herramientas externas. El manifiesto apunta a `StripFootingRebar.RibbonApp` y
+`StripFootingRebar.ArmarCimientoCommand`.
 
 La rama principal del repositorio es `main`; ahí está siempre la última versión.
 
@@ -195,8 +258,9 @@ La rama principal del repositorio es `main`; ahí está siempre la última versi
 | `SpliceLayout.cs` | Empalmes por traslape: longitud de empalme (ACI 318-19) por diámetro y reparto de los trozos con cada empalme en la zona de un tramo del recorrido. Pura. |
 | `HostAnalysis.cs` | Resultado por elemento y agrupación en recorridos (`Chained`). |
 | `RebarGenerator.cs` | Crea los `Rebar` tramo a tramo y a lo largo del recorrido, con las redes de seguridad contra la unión de sólidos. |
-| `RebarOptionsWindow.cs`, `SectionPreview.cs`, `ElevationPreview.cs`, `BastonPreview.cs`, `RevitTheme.cs` | Ventana y esquemas. |
-| `ArmarCimientoCommand.cs`, `RibbonApp.cs` | Comando externo y cinta. |
+| `RebarOptionsWindow.cs`, `SectionPreview.cs`, `ElevationPreview.cs`, `BastonPreview.cs` | Ventana y esquemas (tema oscuro `RevitTheme` del común). |
+| `ArmarCimientoCommand.cs`, `RibbonApp.cs` | Comando externo (parámetros del contrato, borrar y rearmar, migración) y botón de la cinta con su icono. |
+| `external/ARBA-comun/src/` (submódulo) | Contrato (`ArbaContract`), partición (`ArbaPartition`, `PartitionName`), parámetros compartidos (`ArbaSharedParams`), origen (`ArbaOrigin`), migración (`ArbaMigration`), cinta (`ArbaRibbon`), tema (`RevitTheme`) y nombres de tipo (`NameMatch`). |
 
 ## Limitaciones conocidas
 

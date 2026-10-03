@@ -6,9 +6,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using Arba.Comun;
 using Document = Autodesk.Revit.DB.Document;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>
     /// Ventana previa al armado: muestra que se ha detectado en cada viga seleccionada
@@ -77,7 +78,7 @@ namespace FootingRebar
         private ComboBox _stType, _stHook, _stOrient, _joined;
         private TextBox _stDist, _stStartOff, _stEndOff, _cover, _partition;
         private CheckBox _stSym;
-        private TextBlock _message, _partitionPreview, _previewCaption;
+        private TextBlock _message, _partitionPreview, _partitionWarning, _contractFooter, _previewCaption;
         private Button _buildButton;
         private SectionPreview _preview;
         private ElevationPreview _elevation;
@@ -448,7 +449,7 @@ namespace FootingRebar
                 Put(grid, row.Corner, r, 1);
                 row.Inter = TypeCombo(cfg.IntermediateBarTypeName);
                 row.Inter.Items.Insert(0, SameAsCorner);
-                if (RebarGenerator.MatchName(_barTypes, cfg.IntermediateBarTypeName) == null) row.Inter.SelectedIndex = 0;
+                if (NameMatch.First(_barTypes, cfg.IntermediateBarTypeName) == null) row.Inter.SelectedIndex = 0;
                 else row.Inter.SelectedIndex = row.Inter.SelectedIndex + 1;
                 row.Inter.ToolTip = "Tipo de barra de las intermedias de la capa (las que van entre las dos extremas). Puede ser otro diametro: \"2 de 3/4 + 1 de 5/8\".";
                 Put(grid, row.Inter, r, 2);
@@ -746,9 +747,14 @@ namespace FootingRebar
                    "lo parten en trozos, cada trozo se arma como un tramo aparte (sin armadura del muro dentro de la columna). " +
                    "Se aplica al volver a lanzar el comando (guardalo como valor por defecto).");
             _partition = new TextBox { Text = _cfg.PartitionTemplate, Margin = Pad };
-            AddRow(grid, r++, "Particion:", _partition, "Plantilla del parametro Particion de cada barra. Comodines: " + PartitionName.Help);
+            AddRow(grid, r++, "Particion:", _partition,
+                   "Plantilla del parametro Particion de cada conjunto. Contrato ARBA-comun " + ArbaContract.Version + ": tiene que empezar por " +
+                   "\"{categoria} - {prefijo}-\" (por defecto \"" + AppConfig.DefaultPartitionTemplate + "\", p. ej. CIMIENTOS - CCO-C1 o MUROS - CCO-SC1 segun " +
+                   "el anfitrion real). La cara (superior / inferior / estribo) va siempre en ARBA - Codigo. Comodines: " + PartitionName.Help);
             _partitionPreview = new TextBlock { Foreground = RevitTheme.Muted, Margin = Pad, TextWrapping = TextWrapping.Wrap };
             AddRow(grid, r++, "", _partitionPreview, null);
+            _partitionWarning = new TextBlock { Foreground = RevitTheme.Error, Margin = Pad, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+            AddRow(grid, r++, "", _partitionWarning, null);
             group.Content = grid;
             return group;
         }
@@ -828,6 +834,14 @@ namespace FootingRebar
             buttons.Children.Add(cancel);
 
             panel.Children.Add(buttons);
+            _contractFooter = new TextBlock
+            {
+                Text = "Contrato ARBA-comun " + ArbaContract.Version,
+                Foreground = RevitTheme.Hint, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
+                ToolTip = "Version del contrato compartido (particion, parametros ARBA - Origen / Codigo, Metrado - Elemento y cinta) con la que se compilo este add-in."
+            };
+            DockPanel.SetDock(_contractFooter, Dock.Left);
+            panel.Children.Add(_contractFooter);
             panel.Children.Add(_message);
             return panel;
         }
@@ -880,7 +894,7 @@ namespace FootingRebar
         {
             var cb = new ComboBox { Margin = Pad };
             foreach (string n in _barTypes) cb.Items.Add(TypeDisplay(n));
-            string match = RebarGenerator.MatchName(_barTypes, current);
+            string match = NameMatch.First(_barTypes, current);
             cb.SelectedIndex = match == null ? -1 : _barTypes.IndexOf(match);
             return cb;
         }
@@ -893,7 +907,7 @@ namespace FootingRebar
             var cb = new ComboBox { Margin = Pad };
             cb.Items.Add(NoHook);
             foreach (string n in _hookTypes) cb.Items.Add(n);
-            string match = RebarGenerator.MatchName(_hookTypes, current);
+            string match = NameMatch.First(_hookTypes, current);
             cb.SelectedIndex = match == null ? 0 : _hookTypes.IndexOf(match) + 1;
             return cb;
         }
@@ -904,7 +918,7 @@ namespace FootingRebar
         private double HookAngle(string name)
         {
             if (string.IsNullOrEmpty(name)) return 0;
-            string match = RebarGenerator.MatchName(_hookTypes, name);
+            string match = NameMatch.First(_hookTypes, name);
             if (match != null && _hookAngles.TryGetValue(match, out double deg) && deg > 0) return deg;
             return 135;
         }
@@ -920,7 +934,7 @@ namespace FootingRebar
 
         private double DiameterFt(string typeName)
         {
-            string match = RebarGenerator.MatchName(_barTypes, typeName);
+            string match = NameMatch.First(_barTypes, typeName);
             return match != null && _diametersMm.TryGetValue(match, out double mm) ? BeamSection.Mm(mm) : 0;
         }
 
@@ -1107,7 +1121,8 @@ namespace FootingRebar
                 EnsureAdjacent(_selected.Section);
                 if (runs != null) _elevation.Show(_selected.Section, plan, runs, bastones, scratch); else _elevation.Clear(text);
                 _bastonPreview.Show(_selected.Section, plan, bastones, scratch);
-                _partitionPreview.Text = "Ejemplo: " + _selected.Partition(scratch, "estribo", "estribo");
+                _partitionPreview.Text = "Ejemplo: " + _selected.Partition(scratch, "estribo", "estribo") +
+                                         "   (ARBA - Origen = " + ArbaContract.CimientosCorridos.Origin + ", ARBA - Codigo = estribo)";
                 var bmsgs = new List<string>();
                 if (bastones == null) RebarGenerator.BastonRanges(_selected.Section, scratch, out bmsgs);
                 if (plan != null) bmsgs.AddRange(plan.Warnings.Where(w => w.StartsWith("baston", StringComparison.OrdinalIgnoreCase)));
@@ -1124,6 +1139,13 @@ namespace FootingRebar
                 _partitionPreview.Text = "";
                 _bastonMessage.Text = "";
             }
+
+            bool follows = ArbaPartition.TemplateFollowsContract(_partition.Text);
+            _partitionWarning.Visibility = follows ? Visibility.Collapsed : Visibility.Visible;
+            _partitionWarning.Text = follows ? "" :
+                "La plantilla no cumple el contrato ARBA-comun " + ArbaContract.Version + ": tiene que empezar por \"{categoria} - {prefijo}-\" " +
+                "para que el metrado agrupe estas barras con las de los demas add-ins (por defecto \"" + AppConfig.DefaultPartitionTemplate + "\"). " +
+                "Se arma igualmente con la plantilla escrita.";
 
             if (error != null) { _message.Foreground = RevitTheme.Error; _message.Text = error; }
             else if (_message.Foreground == RevitTheme.Error) _message.Text = "";

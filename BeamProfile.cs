@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>Seccion (u, v) leida en una estacion w del eje de la viga. Coordenadas en pies.</summary>
     public sealed class ProfileStation

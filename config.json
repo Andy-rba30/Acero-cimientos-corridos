@@ -53,7 +53,7 @@
 
   "joinedGeometry": "auto",
 
-  "partitionTemplate": "CC-{marca}",
+  "partitionTemplate": "{categoria} - {prefijo}-{marca}",
 
   "probeSliceMm": 10,
   "prismCheckStepMm": 250,

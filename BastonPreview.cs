@@ -7,7 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>
     /// Esquema pequeno de los bastones solos: el alzado de la viga (perfil del alma) con

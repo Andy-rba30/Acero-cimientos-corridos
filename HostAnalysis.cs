@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using Arba.Comun;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 
-namespace FootingRebar
+namespace StripFootingRebar
 {
     /// <summary>
     /// Resultado del analisis de un elemento seleccionado, antes de armar nada: el perfil
@@ -69,13 +71,26 @@ namespace FootingRebar
         public string Distribution(AppConfig cfg) =>
             string.IsNullOrWhiteSpace(DistributionOverride) ? cfg.Stirrups.Distribution : DistributionOverride;
 
-        public string Partition(AppConfig cfg, string setName, string face)
+        /// <summary>
+        /// Particion del contrato ARBA-comun para una barra creada en <paramref name="host"/> (por
+        /// defecto el anfitrion de este analisis): "{categoria} - CCO-{marca}" con la categoria del
+        /// anfitrion real (CIMIENTOS, MUROS, LOSAS, VIGAS) y su marca (o su Id si esta vacia). En un
+        /// recorrido con varios tramos cada barra toma la marca y la categoria del tramo en el que se crea.
+        /// </summary>
+        public string Partition(AppConfig cfg, string setName, string face, Element host = null)
         {
-            return PartitionName.Expand(cfg.PartitionTemplate, new PartitionName.Source
+            HostAnalysis src = SegmentOf(host) ?? this;
+            return ArbaPartition.BuildFor(host ?? Host, ArbaContract.CimientosCorridos, cfg.PartitionTemplate, new PartitionName.Source
             {
-                Mark = Mark, Id = Host.Id.ToString(), TypeName = TypeName, FamilyName = FamilyName,
-                SetName = setName, Face = face
+                Mark = src.Mark, TypeName = src.TypeName, FamilyName = src.FamilyName, SetName = setName, Code = face
             });
+        }
+
+        /// <summary>Analisis del tramo del recorrido cuyo anfitrion es <paramref name="host"/>; null si no es un tramo de esta cadena.</summary>
+        private HostAnalysis SegmentOf(Element host)
+        {
+            if (host == null || Chain == null) return null;
+            return Chain.Segs.Select(s => s.Item).FirstOrDefault(it => it?.Host != null && it.Host.Id == host.Id);
         }
 
         /// <summary>
