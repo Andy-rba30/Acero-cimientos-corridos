@@ -1,0 +1,12 @@
+# Copia este archivo en cada add-in como .github/dependabot.yml.
+# GitHub abrirá un pull request en el repo cada vez que avance main de ARBA-comun
+# (actualiza el puntero del submódulo external/ARBA-comun). Revísalo, compila y fusiona.
+version: 2
+updates:
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    labels: ["arba-comun"]
+    commit-message:
+      prefix: "Submodulo ARBA-comun"
